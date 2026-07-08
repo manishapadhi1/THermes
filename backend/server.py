@@ -88,6 +88,40 @@ async def yahoo_quote(symbol: str) -> Optional[Dict[str, Any]]:
     except Exception:
         return None
 
+def timeframe_to_yahoo(tf: str) -> tuple[str, str]:
+    return {
+        "1m": ("1d", "1m"),
+        "5m": ("5d", "5m"),
+        "15m": ("5d", "15m"),
+        "1h": ("1mo", "60m"),
+        "1d": ("6mo", "1d"),
+        "1mo": ("2y", "1mo"),
+        "6mo": ("5y", "1mo"),
+        "1y": ("5y", "1mo"),
+        "5y": ("10y", "3mo"),
+        "all": ("max", "3mo"),
+    }.get(tf, ("1d", "1m"))
+
+async def yahoo_candles(symbol: str, tf: str) -> Optional[List[Dict[str, Any]]]:
+    rng, interval = timeframe_to_yahoo(tf)
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol(symbol)}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            r = await client.get(url, params={"range": rng, "interval": interval})
+            r.raise_for_status()
+            data = r.json()["chart"]["result"][0]
+            ts = data.get("timestamp") or []
+            q = (data.get("indicators", {}).get("quote") or [{}])[0]
+            rows = []
+            for i, t in enumerate(ts):
+                vals = {k: (q.get(k) or [None] * len(ts))[i] if i < len(q.get(k) or []) else None for k in ["open", "high", "low", "close", "volume"]}
+                if vals["close"] is None:
+                    continue
+                rows.append({"t": t, "o": vals["open"], "h": vals["high"], "l": vals["low"], "c": vals["close"], "v": vals["volume"] or 0})
+            return rows[-240:]
+    except Exception:
+        return None
+
 async def nse_quote(symbol: str) -> Optional[Dict[str, Any]]:
     """Best-effort NSE public endpoint. Unofficial, can rate-limit/block."""
     try:
@@ -117,6 +151,39 @@ async def nse_quote(symbol: str) -> Optional[Dict[str, Any]]:
             }
     except Exception:
         return None
+
+async def nse_orderbook(symbol: str) -> Optional[Dict[str, Any]]:
+    """Best-effort NSE market depth. Returns None if NSE blocks or depth is unavailable."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        "Accept": "application/json,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": f"https://www.nseindia.com/get-quotes/equity?symbol={symbol}",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers=headers, follow_redirects=True) as client:
+            await client.get("https://www.nseindia.com")
+            r = await client.get("https://www.nseindia.com/api/quote-equity", params={"symbol": symbol})
+            r.raise_for_status()
+            d = r.json()
+            depth = d.get("marketDeptOrderBook") or {}
+            buy = depth.get("bid") or depth.get("buy") or []
+            sell = depth.get("ask") or depth.get("sell") or []
+            trade = d.get("priceInfo", {}).get("lastPrice")
+            if not buy and not sell:
+                return None
+            def norm(rows):
+                out = []
+                for x in rows[:5]:
+                    out.append({
+                        "price": x.get("price") or x.get("bidPrice") or x.get("askPrice"),
+                        "qty": x.get("quantity") or x.get("bidQty") or x.get("askQty") or x.get("qty"),
+                        "orders": x.get("orders") or x.get("numberOfOrders") or "—",
+                    })
+                return out
+            return {"available": True, "source": "nse_public", "ltp": trade, "bids": norm(buy), "asks": norm(sell), "message": "Best-effort NSE public market depth; may be delayed or rate-limited."}
+    except Exception as e:
+        return {"available": False, "source": "nse_public", "message": f"NSE depth unavailable/blocked: {str(e)[:120]}"}
 
 # ─── App ───────────────────────────────────────────────
 app = FastAPI(title="THermes Trading Platform")
@@ -434,7 +501,12 @@ async def market_status():
     }
 
 @app.get("/api/market/intraday/{symbol}")
-async def get_intraday(symbol: str):
+async def get_intraday(symbol: str, tf: str = "1d"):
+    provider = state_market_provider()
+    if provider == "yahoo":
+        rows = await yahoo_candles(symbol, tf)
+        if rows:
+            return {"symbol": symbol, "tf": tf, "source": "yahoo", "live": False, "delay_note": "Yahoo Finance free feed; delayed, not tick-live.", "candles": rows}
     import random
     random.seed(hash(symbol) % 10000)
     base = {"NIITMTS": 246, "TCS": 3782, "INFY": 1564, "RELIANCE": 2845,
@@ -454,7 +526,20 @@ async def get_intraday(symbol: str):
         l = min(o, c) - random.uniform(0, vol*0.4)
         candles.append({"o": round(o,2), "h": round(h,2), "l": round(l,2), "c": round(c,2), "v": int(random.uniform(5000, 50000))})
         price = c
-    return {"symbol": symbol, "candles": candles}
+    return {"symbol": symbol, "tf": tf, "source": "fallback", "live": False, "delay_note": "Fallback synthetic candles.", "candles": candles}
+
+@app.get("/api/market/orderbook/{symbol}")
+async def get_orderbook(symbol: str):
+    # Prefer free NSE depth when available. Yahoo has no order book/depth API.
+    if state_market_provider() in {"nse_public", "yahoo"}:
+        depth = await nse_orderbook(symbol)
+        if depth:
+            return {"symbol": symbol, **depth}
+    brokers = load_state().get("brokers", {})
+    connected = [name for name, cfg in brokers.items() if cfg.get("enabled") and cfg.get("api_key")]
+    if not connected:
+        return {"symbol": symbol, "available": False, "source": state_market_provider(), "message": "Order book / market depth is not available from Yahoo/NSE free feeds. Connect a broker API with market-depth support to show this."}
+    return {"symbol": symbol, "available": False, "source": connected[0], "message": "Broker connected, but depth client is not wired yet."}
 
 # ─── Trade / Order ─────────────────────────────────────
 class TradeRequest(BaseModel):

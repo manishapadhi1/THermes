@@ -582,7 +582,7 @@ function switchDT(tab){
   const h=S.portfolio.holdings.find(x=>x.symbol===S.selectedStock);
   switch(tab){
     case'chart':c.innerHTML=renderChart(s);setTimeout(()=>drawChart(s),50);break;
-    case'orderbook':c.innerHTML=renderOrderBook(s);break;
+    case'orderbook':c.innerHTML='<div class="card"><h4>Order Book</h4><div style="color:var(--tds-text-subtle)">Loading NSE/BSE market depth…</div></div>';loadOrderBook(s);break;
     case'technical':c.innerHTML=renderTechnical(s);break;
     case'fundamental':c.innerHTML=renderFundamental(s);break;
     case'sentiment':c.innerHTML=renderSentiment(s);break;
@@ -616,10 +616,15 @@ function drawChart(s){
 // ═══════════════════════════════════════════════
 // ORDER BOOK
 // ═══════════════════════════════════════════════
-function renderOrderBook(s){
-  const p=s.ltp;const bids=[{p:p-0.50,q:2500,o:12},{p:p-0.35,q:1800,o:8},{p:p-0.20,q:4200,o:15},{p:p-0.10,q:3100,o:10},{p:p-0.05,q:5600,o:18}];
-  const asks=[{p:p+0.05,q:3800,o:14},{p:p+0.10,q:2100,o:9},{p:p+0.20,q:4700,o:16},{p:p+0.35,q:1600,o:7},{p:p+0.50,q:2900,o:11}];
-  return`<div class="card"><h4>Order Book — ${s.symbol}</h4><div class="ob-row ob-hdr"><span>Price</span><span>Qty</span><span>Orders</span></div>${asks.reverse().map(a=>`<div class="ob-row ask"><span>₹${a.p.toFixed(2)}</span><span>${a.q}</span><span>${a.o}</span></div>`).join('')}<div style="padding:6px 12px;text-align:center;font-family:var(--font-display);font-weight:700;font-size:14px;border-top:1px solid rgba(58,81,124,0.3);border-bottom:1px solid rgba(58,81,124,0.3);color:${s.change>=0?'var(--tds-success)':'var(--tds-danger)'}">₹${s.ltp.toFixed(s.ltp<100?2:0)}</div>${bids.map(b=>`<div class="ob-row bid"><span>₹${b.p.toFixed(2)}</span><span>${b.q}</span><span>${b.o}</span></div>`).join('')}</div>`;
+async function loadOrderBook(s){
+  const c=document.getElementById('dContent');
+  try{const d=await api(`/market/orderbook/${encodeURIComponent(s.symbol)}`);c.innerHTML=renderOrderBook(s,d);}catch(e){c.innerHTML=`<div class="card"><h4>Order Book — ${s.symbol}</h4><div style="color:var(--tds-danger)">Failed to load order book: ${esc(e.message)}</div></div>`;}
+}
+function renderOrderBook(s,d){
+  if(!d.available)return`<div class="card"><h4>Order Book — ${s.symbol}</h4><div style="color:var(--tds-warning);font-size:12px;margin-bottom:8px">${esc(d.message||'Order book unavailable')}</div><div style="font-size:11px;color:var(--tds-text-subtle)">Yahoo Finance does not provide order book/depth. NSE/BSE public depth is best-effort and may block automated access. Broker APIs may be required for reliable depth.</div></div>`;
+  const asks=(d.asks||[]).slice().reverse();const bids=d.bids||[];
+  const row=(x,cls)=>`<div class="ob-row ${cls}"><span>₹${Number(x.price||0).toFixed(2)}</span><span>${x.qty||'—'}</span><span>${x.orders||'—'}</span></div>`;
+  return`<div class="card"><h4>Order Book — ${s.symbol}</h4><div style="font-size:10px;color:var(--tds-text-subtle);margin-bottom:6px">Source: ${esc(d.source)} · ${esc(d.message||'')}</div><div class="ob-row ob-hdr"><span>Price</span><span>Qty</span><span>Orders</span></div>${asks.map(a=>row(a,'ask')).join('')}<div style="padding:6px 12px;text-align:center;font-family:var(--font-display);font-weight:700;font-size:14px;border-top:1px solid rgba(58,81,124,0.3);border-bottom:1px solid rgba(58,81,124,0.3);color:${s.change>=0?'var(--tds-success)':'var(--tds-danger)'}">₹${Number(d.ltp||s.ltp).toFixed(2)}</div>${bids.map(b=>row(b,'bid')).join('')}</div>`;
 }
 
 // ═══════════════════════════════════════════════
