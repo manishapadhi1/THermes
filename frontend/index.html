@@ -667,7 +667,7 @@ function renderDetail(sym){
 
   document.getElementById('detail').innerHTML=`
     <div class="detail-hdr"><div style="display:flex;align-items:center;gap:10px"><h2>${s.symbol}</h2><span class="verdict-badge ${v}"><span class="vdot"></span>${vl[v]}</span></div><button class="close-btn" onclick="closeDetail()">✕</button></div>
-    <div style="font-size:10px;color:var(--tds-text-subtle);padding:0 16px 4px">${s.name} · ${s.sector||'N/A'} · P/E ${s.pe||'N/A'}</div>
+    <div style="font-size:10px;color:var(--tds-text-subtle);padding:0 16px 4px">${s.name} · ${s.sector||'N/A'} · P/E ${s.pe&&s.pe!==0?s.pe:'N/A'}</div>
     <div class="d-price"><span class="p">₹${Number(s.ltp||0).toFixed(s.ltp<100?2:0)}</span><span class="ch ${cc}">${sg}₹${Math.abs(s.change||0).toFixed(2)} (${sg}${Number(s.changePct||0).toFixed(2)}%)</span></div>
     <div style="padding:0 16px 8px;font-size:11px;color:${v==='data'?'var(--tds-warning)':'var(--tds-text-subtle)'}">
       ${v==='data'?'Fundamental/sentiment data is incomplete. ':''}<span id="researchStatus">${s.researchNotes||''}</span>
@@ -926,8 +926,6 @@ function applyResearchData(symbol,data){
   const senti=data.sentiment||{};
 
   s.name=data.name||funda.name||s.name;
-  // Strip screener.in boilerplate from name
-  if(s.name){s.name=s.name.replace(/^Share price \| About\s*/,'').replace(/\s*\| Key Insights - Screener\s*$/,'').trim();}
   // Only update fields that have actual non-null, non-zero values from enrichment
   function safeNum(v){return v!=null&&v!==0&&!isNaN(Number(v))?Number(v):null;}
   const np=safeNum(data.pe)??safeNum(funda.pe); if(np!=null)s.pe=np;
