@@ -925,6 +925,8 @@ function applyResearchData(symbol,data){
   const senti=data.sentiment||{};
 
   s.name=data.name||funda.name||s.name;
+  // Strip screener.in boilerplate from name
+  if(s.name){s.name=s.name.replace(/^Share price \| About\s*/,'').replace(/\s*\| Key Insights - Screener\s*$/,'').trim();}
   s.pe=Number(data.pe||funda.pe||s.pe);
   s.eps=Number(data.eps||funda.eps||s.eps);
   s.mcap=Number(data.mcap||funda.mcap||s.mcap);

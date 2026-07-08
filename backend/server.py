@@ -525,6 +525,12 @@ async def scrape_screener(symbol: str) -> Dict[str, Any]:
                     return None
 
             result["name"] = (re.search(r'<title>([^<]+)</title>', html) or [None, symbol])[1]
+            # Try to get clean company name from h1 first, fallback to title strip
+            h1 = re.search(r'<h1[^>]*>(.*?)</h1>', html, re.DOTALL)
+            if h1:
+                result["name"] = re.sub(r'<[^>]+>', '', h1.group(1)).strip()
+            elif result["name"]:
+                result["name"] = result["name"].split(' share price ')[0].strip() or symbol
             result["pe"] = extract_num(r'Stock P/E.*?class="number"[^>]*>([\d.]+)')
             result["book_value"] = extract_num(r'Book Value.*?class="number"[^>]*>([\d,.]+)')
             result["mcap"] = extract_num(r'Market Cap.*?class="number"[^>]*>([\d,.]+)')
