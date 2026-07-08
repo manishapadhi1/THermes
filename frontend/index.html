@@ -322,7 +322,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 // ═══════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════
-const S={watchlist:[],portfolio:{cash:124500,holdings:[]},indices:[],config:{},selectedStock:null,sidebarTab:'watchlist',detailTab:'chart',activeGoal:null,models:[],activeModel:'',chatModel:''};
+const S={watchlist:[],portfolio:{cash:124500,holdings:[]},indices:[],models:{groups:[],default_model:'',active_provider:''},settings:{},selectedStock:null,sidebarTab:'watchlist',detailTab:'chart',activeGoal:null};
 
 // ═══════════════════════════════════════════════
 // API
@@ -331,18 +331,20 @@ const API='/api';
 async function api(url,opts={}){const r=await fetch(API+url,{headers:{'Content-Type':'application/json'},...opts});if(!r.ok)throw new Error(await r.text());return r.json();}
 
 // ═══════════════════════════════════════════════
-// INIT
+// INIT — fetches Hermes models + settings
 // ═══════════════════════════════════════════════
 async function init(){
   try{
-    const[wl,idx,cfg,pf]=await Promise.all([api('/market/watchlist'),api('/market/indices'),api('/config'),api('/trade/portfolio')]);
-    S.watchlist=wl;S.indices=idx;S.config=cfg;S.portfolio={cash:pf.cash,holdings:pf.holdings};
-  }catch(e){console.warn('API unavailable, using embedded data');useEmbeddedData();}
+    const[wl,idx,pf,models,settings]=await Promise.all([
+      api('/market/watchlist'),api('/market/indices'),api('/trade/portfolio'),
+      api('/models'),api('/settings')
+    ]);
+    S.watchlist=wl;S.indices=idx;S.portfolio={cash:pf.cash,holdings:pf.holdings};
+    S.models=models;S.settings=settings;
+    console.log('Hermes connected —',models.groups?.length||0,'provider groups, default:',models.default_model);
+  }catch(e){console.warn('Using embedded data:',e.message);useEmbeddedData();}
   buildModelSelect();
-  renderMarketBar();
-  renderWatchlist();
-  renderPortfolio();
-  renderIndices();
+  renderMarketBar();renderWatchlist();renderPortfolio();renderIndices();
   welcomeMsg();
   setTimeout(()=>selectStock('NIITMTS'),800);
 }
@@ -354,37 +356,36 @@ function useEmbeddedData(){
 }
 
 // ═══════════════════════════════════════════════
-// MODEL SELECTOR
+// MODEL SELECTOR — shows real Hermes models
 // ═══════════════════════════════════════════════
 function buildModelSelect(){
   const sel=document.getElementById('modelSelect');
-  const provs=S.config.llm_providers||[];
-  let html='<optgroup label="Default (Analysis)">';
-  const dm=S.config.default_model||{};
-  provs.forEach(p=>{p.models.forEach(m=>{
-    const val=`${p.id}/${m}`;const sel=val===`${dm.provider}/${dm.model}`?' selected':'';
-    html+=`<option value="${val}"${sel}>${p.name}: ${m}</option>`;
-  });});
-  html+='</optgroup><optgroup label="Chat Model">';
-  const cm=S.config.chat_model||{};
-  provs.forEach(p=>{p.models.forEach(m=>{
-    const val=`chat:${p.id}/${m}`;const sel=val===`chat:${cm.provider}/${cm.model}`?' selected':'';
-    html+=`<option value="${val}"${sel}>💬 ${p.name}: ${m}</option>`;
-  });});
-  html+='</optgroup>';
+  if(!sel)return;
+  const groups=S.models.groups||[];
+  if(!groups.length){sel.innerHTML='<option>No models — check Hermes</option>';return;}
+  let html='';
+  groups.forEach(g=>{
+    html+=`<optgroup label="${g.provider}">`;
+    (g.models||[]).forEach(m=>{
+      const selMark=m.id===S.models.default_model?' selected':'';
+      html+=`<option value="${m.id}"${selMark}>${m.label||m.id}</option>`;
+    });
+    html+='</optgroup>';
+  });
   sel.innerHTML=html;
 }
 
-async function changeModel(val){
-  if(val.startsWith('chat:')){
-    const[provider,model]=val.replace('chat:','').split('/');
-    await api('/llm/model',{method:'PUT',body:JSON.stringify({type:'chat',provider,model})});
-    toast(`Chat model → ${provider}/${model}`,'ok');
-  }else if(val){
-    const[provider,model]=val.split('/');
-    await api('/llm/model',{method:'PUT',body:JSON.stringify({type:'default',provider,model})});
-    toast(`Default model → ${provider}/${model}`,'ok');
-  }
+async function changeModel(modelId){
+  if(!modelId)return;
+  // Save to Hermes settings as default model
+  try{
+    const parts=modelId.split('/');
+    const provider=parts.length>1?parts[0]:S.models.active_provider;
+    const model=parts.length>1?parts.slice(1).join('/'):modelId;
+    await api('/settings',{method:'POST',body:JSON.stringify({default_model:modelId,default_model_provider:provider})});
+    toast(`Model → ${modelId}`,'ok');
+    S.models.default_model=modelId;
+  }catch(e){console.warn('Model switch failed:',e);}
 }
 
 // ═══════════════════════════════════════════════
@@ -632,13 +633,24 @@ function welcomeMsg(){
 async function sendMsg(){
   const input=document.getElementById('cInput');const text=input.value.trim();if(!text)return;
   addMsg('user',text);input.value='';input.style.height='auto';
+  // Create agent message placeholder for streaming
+  const c=document.getElementById('chatMsgs');
+  const d=document.createElement('div');d.className='msg agent';d.id='streaming-msg';
+  d.innerHTML=`<div class="msg-av ag">🤖</div><div><div class="msg-c" id="streaming-content"></div></div>`;
+  c.appendChild(d);c.scrollTop=c.scrollHeight;
+  const sc=document.getElementById('streaming-content');
   try{
-    const r=await api('/chat',{method:'POST',body:JSON.stringify({message:text})});
-    addMsg('agent',r.content);
-  }catch(e){
-    // Fallback to local response if backend unavailable
-    addMsg('agent',localResponse(text));
-  }
+    // Phase 1: Start chat
+    const start=await api('/chat/start',{method:'POST',body:JSON.stringify({message:text,model:S.models.default_model||undefined})});
+    // Phase 2: SSE stream
+    const streamUrl=`${API}/chat/stream?stream_id=${encodeURIComponent(start.stream_id)}`;
+    const evtSource=new EventSource(streamUrl);
+    let fullText='';
+    evtSource.addEventListener('token',e=>{const t=JSON.parse(e.data);fullText+=t.text||'';sc.innerHTML=fmt(fullText);c.scrollTop=c.scrollHeight;});
+    evtSource.addEventListener('done',()=>{evtSource.close();d.removeAttribute('id');});
+    evtSource.addEventListener('error',()=>{evtSource.close();if(!fullText){sc.innerHTML='<em>No response from agent.</em>';d.removeAttribute('id');}});
+    evtSource.addEventListener('stream_end',()=>{evtSource.close();d.removeAttribute('id');});
+  }catch(e){console.warn('Chat error:',e);d.remove();addMsg('agent',localResponse(text));}
 }
 
 function setGoal(goal){
@@ -659,86 +671,63 @@ function localResponse(t){
 }
 
 // ═══════════════════════════════════════════════
-// SETTINGS MODAL
+// SETTINGS MODAL — shows real Hermes providers
 // ═══════════════════════════════════════════════
-function openSettings(){renderSettings('llm');}
+async function openSettings(){
+  // Fetch latest providers from Hermes
+  try{const p=await api('/providers');S._providers=p.providers||p||[];}catch(e){console.warn('Providers fetch failed:',e);S._providers=[];}
+  renderSettings('llm');
+}
 function closeSettings(){document.getElementById('settingsOverlay').style.display='none';}
 
 function renderSettings(tab){
   document.getElementById('settingsOverlay').style.display='flex';
   const overlay=document.getElementById('settingsOverlay');
   overlay.innerHTML=`
-    <div class="modal">
+    <div class="modal" onclick="event.stopPropagation()">
       <div class="modal-hdr"><h2>⚙ Settings</h2><button class="close-btn" onclick="closeSettings()">✕</button></div>
       <div class="modal-tabs">
-        <button class="modal-tab${tab==='llm'?' active':''}" onclick="renderSettings('llm')">LLM Models</button>
-        <button class="modal-tab${tab==='mcp'?' active':''}" onclick="renderSettings('mcp')">MCP Servers</button>
-        <button class="modal-tab${tab==='skills'?' active':''}" onclick="renderSettings('skills')">Skills</button>
-        <button class="modal-tab${tab==='brokers'?' active':''}" onclick="renderSettings('brokers')">Broker APIs</button>
+        <button class="modal-tab${tab==='llm'?' active':''}" onclick="renderSettings('llm')">Providers</button>
+        <button class="modal-tab${tab==='brokers'?' active':''}" onclick="renderSettings('brokers')">Brokers</button>
         <button class="modal-tab${tab==='agents'?' active':''}" onclick="renderSettings('agents')">Agents</button>
       </div>
       <div class="modal-body">${renderSettingsContent(tab)}</div>
     </div>`;
+  overlay.onclick=closeSettings;
 }
 
 function renderSettingsContent(tab){
-  const cfg=S.config;
   switch(tab){
-    case'llm':return(cfg.llm_providers||[]).map(p=>`
-      <div class="provider-card">
-        <div class="p-hdr"><span class="p-name">${p.name}</span><label class="toggle"><input type="checkbox" ${p.enabled?'checked':''} onchange="toggleProvider('${p.id}',this.checked)"><span class="slider"></span></label></div>
-        <div style="font-size:10px;color:var(--tds-text-subtle);margin-bottom:6px">Models: ${p.models.join(', ')}</div>
-        <label>API Key</label><input type="password" value="${p.api_key||''}" placeholder="Enter ${p.name} API key" onchange="saveProviderKey('${p.id}',this.value)">
-        <label>API Base URL</label><input value="${p.api_base||''}" onchange="saveProviderBase('${p.id}',this.value)" placeholder="https://api.example.com/v1">
-      </div>`).join('');
-
-    case'mcp':return`
-      <div style="margin-bottom:12px"><button class="btn-sm primary" onclick="addMCPServer()">+ Add MCP Server</button></div>
-      ${(cfg.mcp_servers||[]).map(m=>`<div class="provider-card"><div class="p-hdr"><span class="p-name">${m.name}</span><label class="toggle"><input type="checkbox" ${m.enabled?'checked':''} onchange="toggleMCP('${m.id}',this.checked)"><span class="slider"></span></label></div><div style="font-size:10px;color:var(--tds-text-subtle)">${m.command}</div><button class="btn-sm danger" style="margin-top:6px" onclick="removeMCP('${m.id}')">Remove</button></div>`).join('')}`;
-
-    case'skills':return(cfg.skills||[]).map(s=>`
-      <div class="provider-card">
-        <div class="p-hdr"><span class="p-name">${s.name}</span><label class="toggle"><input type="checkbox" ${s.enabled?'checked':''} onchange="toggleSkill('${s.id}',this.checked)"><span class="slider"></span></label></div>
-        <div style="font-size:10px;color:var(--tds-text-subtle)">${s.description}</div>
-        <div style="margin-top:4px"><span class="sig ${s.risk_level==='careful'?'buy-sig':s.risk_level==='risky'?'sell-sig':'neu-sig'}" style="font-size:9px">${s.risk_level.toUpperCase()}</span></div>
-      </div>`).join('');
-
-    case'brokers':{
-      const b=cfg.brokers||{};
-      return`<div class="provider-card"><div class="p-hdr"><span class="p-name">Zerodha Kite</span><span class="sig ${b.zerodha?.enabled?'buy-sig':'neu-sig'}">${b.zerodha?.enabled?'CONNECTED':'DISCONNECTED'}</span></div><label>API Key</label><input type="password" value="${b.zerodha?.api_key||''}" placeholder="Zerodha API Key" onchange="saveBrokerField('zerodha','api_key',this.value)"><label>API Secret</label><input type="password" value="${b.zerodha?.api_secret||''}" placeholder="Zerodha API Secret" onchange="saveBrokerField('zerodha','api_secret',this.value)"><label>User ID</label><input value="${b.zerodha?.user_id||''}" placeholder="Zerodha User ID" onchange="saveBrokerField('zerodha','user_id',this.value)"><button class="btn-sm success" style="margin-top:8px" onclick="testBroker('zerodha')">Test Connection</button></div>
-      <div class="provider-card"><div class="p-hdr"><span class="p-name">Angel Broking</span><span class="sig ${b.angel_broking?.enabled?'buy-sig':'neu-sig'}">${b.angel_broking?.enabled?'CONNECTED':'DISCONNECTED'}</span></div><label>API Key</label><input type="password" value="${b.angel_broking?.api_key||''}" placeholder="Angel API Key" onchange="saveBrokerField('angel_broking','api_key',this.value)"><label>Client ID</label><input value="${b.angel_broking?.client_id||''}" placeholder="Client ID" onchange="saveBrokerField('angel_broking','client_id',this.value)"><label>Password</label><input type="password" value="${b.angel_broking?.password||''}" placeholder="Password" onchange="saveBrokerField('angel_broking','password',this.value)"><button class="btn-sm success" style="margin-top:8px" onclick="testBroker('angel_broking')">Test Connection</button></div>`;
+    case'llm':{
+      const provs=S._providers||[];
+      if(!provs.length)return'<div style="color:var(--tds-text-subtle)">Loading providers from Hermes…</div>';
+      return provs.map(p=>`
+        <div class="provider-card">
+          <div class="p-hdr"><span class="p-name">${p.display_name||p.id}</span><span class="sig ${p.has_key?'buy-sig':'neu-sig'}">${p.has_key?'🔑 KEY SET':'NO KEY'}</span></div>
+          <div style="font-size:10px;color:var(--tds-text-subtle);margin:4px 0">ID: ${p.id} · ${p.models?.length||0} models · Key source: ${p.key_source||'none'}</div>
+          <label>API Key</label>
+          <input type="password" placeholder="${p.has_key?'•••• (key is set)':'Enter API key'}" onchange="saveProviderKey('${p.id}',this.value)">
+        </div>`).join('');
     }
-
-    case'agents':{
-      const a=cfg.trading_agents||{};const act=cfg.active_trading_agent||'careful';const auto=cfg.autonomous_trading||false;
-      return`
-      <div class="card"><h4>Autonomous Trading</h4><div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><span style="font-size:12px">${auto?'🟢 ENABLED':'⚪ DISABLED'}</span><label class="toggle"><input type="checkbox" ${auto?'checked':''} onchange="toggleAutonomous(this.checked)"><span class="slider"></span></label></div>
-      ${auto?`<button class="btn-sm success" onclick="runAutonomousScan()">Run Scan Now</button><button class="btn-sm danger" style="margin-left:6px" onclick="toggleAutonomous(false)">Stop</button>`:''}</div>
-      ${Object.entries(a).map(([id,ag])=>`
-      <div class="card" style="border-color:${id===act?'var(--tds-blue)':'rgba(58,81,124,0.25)'}">
-        <div class="p-hdr"><span class="p-name">${ag.name}</span><span class="sig ${id==='careful'?'buy-sig':id==='risky'?'sell-sig':'neu-sig'}">${id.toUpperCase()}</span></div>
-        <div style="font-size:10px;color:var(--tds-text-subtle);margin:4px 0">${ag.description}</div>
-        <div style="font-size:10px;color:var(--tds-text-subtle)">Max Position: ${ag.max_position_pct}% | Stop Loss: ${ag.stop_loss_pct}% | Daily Trades: ${ag.max_daily_trades}</div>
-        <button class="btn-sm ${id===act?'primary':''}" style="margin-top:6px" onclick="activateAgent('${id}')">${id===act?'✓ Active':'Activate'}</button>
-      </div>`).join('')}`;
-    }
+    case'brokers':return`
+      <div class="provider-card"><div class="p-hdr"><span class="p-name">Zerodha Kite</span><span class="sig neu-sig">CONFIGURABLE</span></div><label>API Key</label><input type="password" placeholder="Zerodha API Key"><label>API Secret</label><input type="password" placeholder="Zerodha API Secret"><label>User ID</label><input placeholder="e.g. XK8892"><button class="btn-sm success" style="margin-top:8px" onclick="testBroker('zerodha')">Test Connection</button></div>
+      <div class="provider-card"><div class="p-hdr"><span class="p-name">Angel Broking</span><span class="sig neu-sig">CONFIGURABLE</span></div><label>API Key</label><input type="password" placeholder="Angel API Key"><label>Client ID</label><input placeholder="Client ID"><button class="btn-sm success" style="margin-top:8px" onclick="testBroker('angel_broking')">Test Connection</button></div>`;
+    case'agents':return`
+      <div class="card"><h4>Autonomous Trading</h4><div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><span>⚪ DISABLED</span><label class="toggle"><input type="checkbox" onchange="toggleAutonomous(this.checked)"><span class="slider"></span></label></div></div>
+      ${['careful','moderate','risky'].map(id=>{
+        const names={careful:'Careful Investor',moderate:'Moderate Investor',risky:'Risky Investor'};
+        const descs={careful:'All signals must align. Small positions, tight stops.',moderate:'2 of 3 signals needed. Balanced approach.',risky:'Any positive signal. Larger positions, wider stops.'};
+        return`<div class="card"><div class="p-hdr"><span class="p-name">${names[id]}</span><span class="sig ${id==='careful'?'buy-sig':id==='risky'?'sell-sig':'neu-sig'}">${id.toUpperCase()}</span></div><div style="font-size:10px;color:var(--tds-text-subtle);margin:4px 0">${descs[id]}</div><button class="btn-sm primary" onclick="activateAgent('${id}')">Activate</button></div>`;
+      }).join('')}`;
   }
   return'';
 }
 
 // Settings actions
-async function toggleProvider(id,enabled){await api(`/llm/providers/${id}`,{method:'PUT',body:JSON.stringify({enabled})});toast(`${id} ${enabled?'enabled':'disabled'}`,'ok');}
-async function saveProviderKey(id,key){await api(`/llm/providers/${id}`,{method:'PUT',body:JSON.stringify({api_key:key})});}
-async function saveProviderBase(id,base){/* In production, save base URL */}
-async function toggleMCP(id,enabled){await api(`/mcp/servers/${id}`,{method:'PUT',body:JSON.stringify({enabled})});}
-async function removeMCP(id){await api(`/mcp/servers/${id}`,{method:'DELETE'});renderSettings('mcp');}
-async function addMCPServer(){const id=prompt('Server ID:');const name=prompt('Name:');const cmd=prompt('Command:');if(id&&name){await api('/mcp/servers',{method:'POST',body:JSON.stringify({id,name,command:cmd,enabled:false})});renderSettings('mcp');}}
-async function toggleSkill(id,enabled){await api(`/skills/${id}`,{method:'PUT',body:JSON.stringify({enabled})});}
-async function saveBrokerField(broker,field,val){await api(`/brokers/${broker}`,{method:'PUT',body:JSON.stringify({broker,[field]:val})});}
+async function saveProviderKey(id,key){try{await api('/providers',{method:'POST',body:JSON.stringify({provider:id,api_key:key})});toast(`Key saved for ${id}`,'ok');}catch(e){toast('Save failed','err');}}
 async function testBroker(broker){try{const r=await api(`/brokers/${broker}/test`,{method:'POST'});toast(r.message,'ok');}catch(e){toast('Connection failed','err');}}
-async function activateAgent(type){await api('/agents/activate',{method:'PUT',body:JSON.stringify({agent_type:type})});toast(`Agent: ${type}`,'ok');renderSettings('agents');}
-async function toggleAutonomous(enabled){await api('/agents/autonomous',{method:'PUT',body:JSON.stringify({enabled})});toast(`Autonomous ${enabled?'ON':'OFF'}`,'ok');renderSettings('agents');}
-async function runAutonomousScan(){try{const r=await api('/agents/run',{method:'POST'});toast(r.summary,'ok');}catch(e){toast('Scan failed','err');}}
+async function activateAgent(type){await api('/agents/activate',{method:'PUT',body:JSON.stringify({agent_type:type})});toast(`Agent: ${type}`,'ok');}
+async function toggleAutonomous(enabled){await api('/agents/autonomous',{method:'PUT',body:JSON.stringify({enabled})});toast(`Autonomous ${enabled?'ON':'OFF'}`,'ok');}
 
 // ═══════════════════════════════════════════════
 // MOBILE
