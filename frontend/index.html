@@ -84,18 +84,34 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 .msg-btn.sell:hover{background:var(--tds-danger);color:#fff;}
 .msg-btn.info:hover{background:var(--tds-surface-03);color:var(--tds-text-strong);}
 
-/* COMPOSER */
+/* HERMES-STYLE COMPOSER */
 .composer{padding:12px 16px;border-top:1px solid rgba(58,81,124,0.25);background:var(--tds-surface-01);}
+.hermes-composer{margin:0 0 0 0;padding:18px 24px 14px;background:var(--tds-surface-01);border-top:1px solid rgba(58,81,124,0.35);}
 .goals{display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap;}
+.hermes-goals{margin-top:10px;margin-bottom:0;opacity:.82;}
 .goal-tag{padding:3px 8px;border-radius:var(--radius-full);font-family:var(--font-compact);font-size:10px;font-weight:600;background:rgba(42,110,207,0.15);color:var(--tds-blue-light);border:1px solid rgba(42,110,207,0.3);cursor:pointer;}
 .goal-tag:hover{background:rgba(42,110,207,0.25);}
 .goal-tag.active{background:var(--tds-blue);color:#fff;}
 .c-row{display:flex;gap:8px;}
 .c-input{flex:1;padding:8px 12px;background:var(--tds-surface-02);border:1px solid var(--tds-border);border-radius:var(--radius-field);color:var(--tds-text-strong);font-family:var(--font-ui);font-size:13px;outline:none;resize:none;min-height:36px;max-height:100px;}
+.hermes-input{width:100%;min-height:52px;max-height:160px;padding:0 0 8px 0;background:transparent;border:0;border-radius:0;font-size:20px;line-height:1.4;color:var(--tds-text-strong);}
 .c-input:focus{border-color:var(--tds-blue);box-shadow:0 0 0 2px rgba(42,110,207,0.15);}
+.hermes-input:focus{box-shadow:none;border-color:transparent;}
 .c-input::placeholder{color:var(--tds-text-subtle);opacity:0.55;}
 .send-btn{padding:8px 16px;background:var(--tds-blue);color:#fff;border:none;border-radius:var(--radius-field);font-family:var(--font-compact);font-weight:600;font-size:12px;cursor:pointer;transition:all 0.15s var(--motion);}
 .send-btn:hover{background:var(--tds-blue-light);}
+.composer-toolbar{display:flex;align-items:center;gap:12px;min-height:42px;}
+.composer-icons{display:flex;align-items:center;gap:14px;}
+.composer-icon{width:28px;height:28px;border:0;background:transparent;color:var(--tds-text-subtle);font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:.85;}
+.composer-icon:hover{color:var(--tds-blue-light);}
+.toolbar-sep{width:1px;height:26px;background:rgba(170,201,246,.35);margin:0 4px;}
+.composer-pill{height:34px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:1px solid rgba(170,201,246,.28);background:rgba(28,34,43,.72);border-radius:999px;color:var(--tds-text-subtle);font-family:var(--font-compact);font-weight:700;font-size:13px;cursor:pointer;}
+.composer-pill:hover{border-color:var(--tds-blue);color:var(--tds-text-strong);}
+.composer-pill.compact{border-color:transparent;background:transparent;padding:0 4px;}
+.composer-spacer{flex:1;}
+.token-meter{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 50%,rgba(42,110,207,.22),rgba(28,34,43,.9));border:4px solid rgba(170,201,246,.18);font-family:var(--font-display);font-size:11px;font-weight:700;color:var(--tds-text-subtle);}
+.send-arrow{width:44px;height:44px;border:0;border-radius:6px;background:var(--tds-blue);color:#fff;font-size:26px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.send-arrow:hover{background:var(--tds-blue-light);}
 
 /* DETAIL PANEL */
 .detail{background:var(--tds-surface-01);border-left:1px solid rgba(58,81,124,0.3);display:flex;flex-direction:column;overflow-y:auto;transition:all 0.25s var(--motion);}
@@ -265,7 +281,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
       </select>
     </div>
     <div class="acct">A/C <strong>XK8892</strong></div>
-    <button class="settings-btn" onclick="openSettings()" title="Settings">⚙</button>
+    <button class="settings-btn" id="settingsBtn" onclick="openSettings()" title="Settings">⚙</button>
     <span class="acct" id="hermesStatus" style="font-size:10px">Connecting…</span>
   </div>
 
@@ -291,18 +307,30 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
       <!-- CHAT -->
       <div class="chat-area" onclick="closeMobilePanels()">
         <div class="chat-msgs" id="chatMsgs"></div>
-        <div class="composer">
-          <div class="goals" id="goalTags">
+        <div class="composer hermes-composer">
+          <textarea class="c-input hermes-input" id="cInput" placeholder="Message Scania Bot..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg();}"></textarea>
+          <div class="composer-toolbar">
+            <div class="composer-icons">
+              <button class="composer-icon" title="Attach">📎</button>
+              <button class="composer-icon" title="Bookmark">🔖</button>
+              <button class="composer-icon" title="Voice">🎙</button>
+            </div>
+            <div class="toolbar-sep"></div>
+            <button class="composer-pill" title="Profile">♙ <span>default</span>⌄</button>
+            <button class="composer-pill" title="Workspace">📁 <span>Home</span>⌄</button>
+            <button class="composer-pill" title="Model">⚙ <span id="composerModelLabel">gpt-5.5</span>⌄</button>
+            <button class="composer-pill compact" title="Reasoning">◐ <span>Medium</span></button>
+            <div class="composer-spacer"></div>
+            <div class="token-meter" title="Context meter">6</div>
+            <button class="send-arrow" onclick="sendMsg()" title="Send">↑</button>
+          </div>
+          <div class="goals hermes-goals" id="goalTags">
             <span class="goal-tag" onclick="setGoal('scan_breakouts')">Scan Breakouts</span>
             <span class="goal-tag" onclick="setGoal('analyze_watchlist')">Analyze Watchlist</span>
             <span class="goal-tag" onclick="setGoal('fundamental_scan')">Fundamental Scan</span>
             <span class="goal-tag" onclick="setGoal('sentiment')">Sentiment Scan</span>
             <span class="goal-tag" onclick="setGoal('portfolio_review')">Portfolio Review</span>
             <span class="goal-tag" onclick="setGoal('day_trade')">Day Trade Setup</span>
-          </div>
-          <div class="c-row">
-            <textarea class="c-input" id="cInput" placeholder="Ask for analysis, request a trade, or describe your goal…" rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg();}"></textarea>
-            <button class="send-btn" onclick="sendMsg()">Send</button>
           </div>
         </div>
       </div>
@@ -314,7 +342,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 </div>
 
 <!-- SETTINGS MODAL -->
-<div id="settingsOverlay" style="display:none;"></div>
+<div id="settingsOverlay" class="modal-overlay" style="display:none;"></div>
 
 <!-- TOAST -->
 <div class="toast-c" id="toastC"></div>
@@ -381,6 +409,11 @@ function buildModelSelect(){
     html+='</optgroup>';
   });
   sel.innerHTML=html;
+  const label=document.getElementById('composerModelLabel');
+  if(label){
+    const chosen=sel.options[sel.selectedIndex];
+    label.textContent=(chosen?.textContent||S.models.default_model||'model').replace(/^💬\s*/, '').slice(0,22);
+  }
 }
 
 async function changeModel(modelId){
@@ -393,6 +426,9 @@ async function changeModel(modelId){
     await api('/settings',{method:'POST',body:JSON.stringify({default_model:modelId,default_model_provider:provider})});
     toast(`Model → ${modelId}`,'ok');
     S.models.default_model=modelId;
+    const label=document.getElementById('composerModelLabel');
+    const opt=document.querySelector(`#modelSelect option[value="${CSS.escape(modelId)}"]`);
+    if(label)label.textContent=(opt?.textContent||modelId).slice(0,22);
   }catch(e){console.warn('Model switch failed:',e);}
 }
 
@@ -682,10 +718,13 @@ function localResponse(t){
 // ═══════════════════════════════════════════════
 // SETTINGS MODAL — shows real Hermes providers
 // ═══════════════════════════════════════════════
-async function openSettings(){
-  // Fetch latest providers from Hermes
-  try{const p=await api('/providers');S._providers=p.providers||p||[];}catch(e){console.warn('Providers fetch failed:',e);S._providers=[];}
+function openSettings(){
+  // Open immediately; load Hermes providers asynchronously so click always feels responsive.
+  S._providers = null;
   renderSettings('llm');
+  api('/providers')
+    .then(p=>{S._providers=p.providers||p||[]; if(document.getElementById('settingsOverlay').style.display!=='none') renderSettings('llm');})
+    .catch(e=>{console.warn('Providers fetch failed:',e); S._providers=[]; if(document.getElementById('settingsOverlay').style.display!=='none') renderSettings('llm');});
 }
 function closeSettings(){document.getElementById('settingsOverlay').style.display='none';}
 
@@ -708,8 +747,9 @@ function renderSettings(tab){
 function renderSettingsContent(tab){
   switch(tab){
     case'llm':{
+      if(S._providers===null)return'<div class="card"><h4>Providers</h4><div style="color:var(--tds-text-subtle)">Loading providers from Hermes…</div></div>';
       const provs=S._providers||[];
-      if(!provs.length)return'<div style="color:var(--tds-text-subtle)">Loading providers from Hermes…</div>';
+      if(!provs.length)return'<div class="card"><h4>Providers</h4><div style="color:var(--tds-danger)">No providers returned from Hermes. Check Hermes WebUI on port 8787.</div></div>';
       return provs.map(p=>`
         <div class="provider-card">
           <div class="p-hdr"><span class="p-name">${p.display_name||p.id}</span><span class="sig ${p.has_key?'buy-sig':'neu-sig'}">${p.has_key?'🔑 KEY SET':'NO KEY'}</span></div>
@@ -752,7 +792,14 @@ function toast(msg,type){const c=document.getElementById('toastC');const d=docum
 // ═══════════════════════════════════════════════
 // COMPOSER AUTO-RESIZE
 // ═══════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded',()=>{init();const inp=document.getElementById('cInput');inp.addEventListener('input',()=>{inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,100)+'px';});window.addEventListener('resize',()=>{if(window.innerWidth>768){document.getElementById('sidebar').classList.remove('open');document.getElementById('detail').classList.remove('open');}});});
+document.addEventListener('DOMContentLoaded',()=>{
+  init();
+  const inp=document.getElementById('cInput');
+  inp.addEventListener('input',()=>{inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,160)+'px';});
+  const settingsBtn=document.getElementById('settingsBtn');
+  if(settingsBtn)settingsBtn.addEventListener('click',(e)=>{e.preventDefault();e.stopPropagation();openSettings();});
+  window.addEventListener('resize',()=>{if(window.innerWidth>768){document.getElementById('sidebar').classList.remove('open');document.getElementById('detail').classList.remove('open');}});
+});
 </script>
 </body>
 </html>
