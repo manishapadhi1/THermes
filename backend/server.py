@@ -388,6 +388,15 @@ async def proxy_chat_start(req: ChatStartRequest):
     if req.model: payload["model"] = req.model
     if req.model_provider: payload["model_provider"] = req.model_provider
     r = await HERMES_CLIENT.post("/api/chat/start", json=payload)
+    # Hermes allows only one active stream per session. Background enrichment
+    # can collide with the visible chat stream, so automatically retry in a
+    # fresh session instead of surfacing "session already has an active stream".
+    if r.status_code in (400, 409) and "active stream" in r.text.lower():
+        fresh = await HERMES_CLIENT.post("/api/session/new", json={})
+        new_session = fresh.json().get("session", {}).get("session_id", "")
+        if new_session:
+            payload["session_id"] = new_session
+            r = await HERMES_CLIENT.post("/api/chat/start", json=payload)
     if r.status_code != 200:
         raise HTTPException(r.status_code, f"Hermes chat failed: {r.text}")
     return JSONResponse(r.json(), r.status_code)

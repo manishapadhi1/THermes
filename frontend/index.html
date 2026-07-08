@@ -278,6 +278,15 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 @keyframes spin{to{transform:rotate(360deg)}}
 .pulse-dot{width:8px;height:8px;border-radius:50%;background:var(--tds-blue-light);box-shadow:0 0 0 0 rgba(74,137,243,.7);animation:pulse 1.3s infinite;display:inline-block;}
 @keyframes pulse{70%{box-shadow:0 0 0 8px rgba(74,137,243,0)}100%{box-shadow:0 0 0 0 rgba(74,137,243,0)}}
+/* LOADING SPLASH */
+.app-loader{position:fixed;inset:0;z-index:999;background:var(--tds-bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;transition:opacity 0.4s var(--motion);}
+.app-loader.done{opacity:0;pointer-events:none;}
+.app-loader .loader-logo{font-family:var(--font-display);font-size:28px;font-weight:800;color:var(--tds-text-strong);letter-spacing:.04em;text-transform:uppercase;}
+.app-loader .loader-logo span{background:#fff;color:var(--tds-header);padding:3px 12px;border-radius:var(--radius-card);font-size:22px;margin-right:8px;}
+.app-loader .loader-bar{width:180px;height:4px;background:rgba(42,110,207,.15);border-radius:2px;overflow:hidden;}
+.app-loader .loader-fill{height:100%;width:30%;background:var(--tds-blue);border-radius:2px;animation:loadSweep 1.5s ease-in-out infinite;}
+@keyframes loadSweep{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}
+.app-loader .loader-text{font-family:var(--font-compact);font-size:12px;color:var(--tds-text-subtle);}
 
 /* SCROLLBAR */
 ::-webkit-scrollbar{width:5px;height:5px;}
@@ -328,6 +337,11 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 </style>
 </head>
 <body>
+<div class="app-loader" id="appLoader">
+  <div class="loader-logo"><span>TH</span>ermes</div>
+  <div class="loader-bar"><div class="loader-fill"></div></div>
+  <div class="loader-text">Connecting to Hermes agent…</div>
+</div>
 <div class="app" id="app">
   <!-- TOP BAR -->
   <div class="topbar">
@@ -453,6 +467,9 @@ async function init(){
   welcomeMsg();
   setTimeout(()=>selectStock('NIITMTS'),800);
   setTimeout(()=>autoEnrichPortfolio(),1500);
+  // Dismiss loading splash
+  const loader=document.getElementById('appLoader');
+  if(loader){loader.classList.add('done');setTimeout(()=>loader.remove(),500);}
 }
 
 function useEmbeddedData(){
@@ -832,7 +849,11 @@ async function sendMsg(opts={}){
   const sc=document.getElementById('streaming-content');
   try{
     // Phase 1: Start chat
-    const start=await api('/chat/start',{method:'POST',body:JSON.stringify({message:text,model:S.models.default_model||undefined})});
+    let chatSessionId=opts.session_id;
+    if(opts.silent && !chatSessionId){
+      try{const s=await api('/session/new',{method:'POST',body:JSON.stringify({})});chatSessionId=s.session?.session_id;}catch(e){console.warn('silent session create failed',e);}
+    }
+    const start=await api('/chat/start',{method:'POST',body:JSON.stringify({message:text,model:S.models.default_model||undefined,session_id:chatSessionId||undefined})});
     // Phase 2: SSE stream
     const streamUrl=`${API}/chat/stream?stream_id=${encodeURIComponent(start.stream_id)}`;
     const evtSource=new EventSource(streamUrl);
