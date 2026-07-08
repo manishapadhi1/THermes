@@ -121,6 +121,57 @@ async def proxy_reasoning_set(request: Request):
     r = await HERMES_CLIENT.post("/api/reasoning", json=body)
     return JSONResponse(r.json(), r.status_code)
 
+# ─── Proxy: Hermes panels used by THermes composer ─────
+@app.get("/api/skills")
+async def proxy_skills():
+    r = await HERMES_CLIENT.get("/api/skills")
+    return JSONResponse(r.json(), r.status_code)
+
+@app.post("/api/skills/toggle")
+async def proxy_skills_toggle(request: Request):
+    body = await request.json()
+    r = await HERMES_CLIENT.post("/api/skills/toggle", json=body)
+    return JSONResponse(r.json(), r.status_code)
+
+@app.get("/api/memory")
+async def proxy_memory():
+    r = await HERMES_CLIENT.get("/api/memory")
+    return JSONResponse(r.json(), r.status_code)
+
+@app.post("/api/memory/write")
+async def proxy_memory_write(request: Request):
+    body = await request.json()
+    r = await HERMES_CLIENT.post("/api/memory/write", json=body)
+    return JSONResponse(r.json(), r.status_code)
+
+@app.get("/api/logs")
+async def proxy_logs(request: Request):
+    qs = str(request.query_params)
+    r = await HERMES_CLIENT.get("/api/logs" + (f"?{qs}" if qs else ""))
+    return JSONResponse(r.json(), r.status_code)
+
+@app.get("/api/profiles")
+async def proxy_profiles():
+    r = await HERMES_CLIENT.get("/api/profiles")
+    return JSONResponse(r.json(), r.status_code)
+
+@app.post("/api/profile/switch")
+async def proxy_profile_switch(request: Request):
+    body = await request.json()
+    r = await HERMES_CLIENT.post("/api/profile/switch", json=body)
+    return JSONResponse(r.json(), r.status_code)
+
+@app.get("/api/workspaces")
+async def proxy_workspaces():
+    r = await HERMES_CLIENT.get("/api/workspaces")
+    return JSONResponse(r.json(), r.status_code)
+
+@app.post("/api/workspaces/add")
+async def proxy_workspaces_add(request: Request):
+    body = await request.json()
+    r = await HERMES_CLIENT.post("/api/workspaces/add", json=body)
+    return JSONResponse(r.json(), r.status_code)
+
 # ─── Proxy: Chat → Hermes Agent ────────────────────────
 class ChatStartRequest(BaseModel):
     session_id: Optional[str] = None
