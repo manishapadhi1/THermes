@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.log
+nohup.out
+config/state.json
+.venv/
+venv/
+.DS_Store
+*.swp
+*.swo

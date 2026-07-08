@@ -1,0 +1,149 @@
+{
+  "app": {
+    "name": "THermes",
+    "version": "1.0.0",
+    "port": 8788,
+    "host": "127.0.0.1"
+  },
+  "llm_providers": [
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "models": ["deepseek-chat", "deepseek-reasoner"],
+      "api_base": "https://api.deepseek.com/v1",
+      "api_key": "",
+      "enabled": true
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "models": ["gpt-4o", "gpt-4o-mini", "o1", "o3-mini"],
+      "api_base": "https://api.openai.com/v1",
+      "api_key": "",
+      "enabled": true
+    },
+    {
+      "id": "claude",
+      "name": "Anthropic Claude",
+      "models": ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-3-5"],
+      "api_base": "https://api.anthropic.com/v1",
+      "api_key": "",
+      "enabled": true
+    },
+    {
+      "id": "gemini",
+      "name": "Google Gemini",
+      "models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
+      "api_base": "https://generativelanguage.googleapis.com/v1beta",
+      "api_key": "",
+      "enabled": true
+    },
+    {
+      "id": "qwen",
+      "name": "Qwen (Alibaba)",
+      "models": ["qwen-max", "qwen-plus", "qwen-turbo"],
+      "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key": "",
+      "enabled": true
+    }
+  ],
+  "default_model": {
+    "provider": "deepseek",
+    "model": "deepseek-chat"
+  },
+  "chat_model": {
+    "provider": "deepseek",
+    "model": "deepseek-chat"
+  },
+  "mcp_servers": [
+    {
+      "id": "market-data",
+      "name": "Market Data MCP",
+      "command": "npx -y @anthropic/mcp-server-marketdata",
+      "enabled": false
+    },
+    {
+      "id": "news-feed",
+      "name": "News Feed MCP",
+      "command": "npx -y @anthropic/mcp-server-news",
+      "enabled": false
+    }
+  ],
+  "skills": [
+    {
+      "id": "trend_follower",
+      "name": "Trend Following",
+      "description": "Buy stocks above 50 DMA with RSI > 50. Sell when RSI crosses below 50.",
+      "enabled": true,
+      "risk_level": "moderate"
+    },
+    {
+      "id": "mean_reversion",
+      "name": "Mean Reversion",
+      "description": "Buy when price drops 2+ std deviations below 20 MA. Sell at mean reversion.",
+      "enabled": true,
+      "risk_level": "careful"
+    },
+    {
+      "id": "breakout_scanner",
+      "name": "Breakout Scanner",
+      "description": "Scan for stocks breaking 20-day highs with 2x average volume.",
+      "enabled": true,
+      "risk_level": "risky"
+    },
+    {
+      "id": "sentiment_trader",
+      "name": "Sentiment Trader",
+      "description": "Trade based on news sentiment shifts — buy on positive sentiment surge.",
+      "enabled": false,
+      "risk_level": "risky"
+    }
+  ],
+  "brokers": {
+    "zerodha": {
+      "api_key": "",
+      "api_secret": "",
+      "user_id": "",
+      "access_token": "",
+      "enabled": false
+    },
+    "angel_broking": {
+      "api_key": "",
+      "client_id": "",
+      "password": "",
+      "access_token": "",
+      "enabled": false
+    }
+  },
+  "trading_agents": {
+    "careful": {
+      "name": "Careful Investor",
+      "max_position_pct": 5,
+      "stop_loss_pct": 3,
+      "min_conviction": 80,
+      "require_all_signals": true,
+      "max_daily_trades": 2,
+      "description": "Only trades when technical, fundamental, and sentiment signals all align. Small positions, tight stops."
+    },
+    "moderate": {
+      "name": "Moderate Investor",
+      "max_position_pct": 15,
+      "stop_loss_pct": 5,
+      "min_conviction": 60,
+      "require_all_signals": false,
+      "max_daily_trades": 5,
+      "description": "Trades on strong signals from at least 2 of 3 analysis types. Balanced risk approach."
+    },
+    "risky": {
+      "name": "Risky Investor",
+      "max_position_pct": 30,
+      "stop_loss_pct": 8,
+      "min_conviction": 40,
+      "require_all_signals": false,
+      "max_daily_trades": 10,
+      "description": "Aggressive trading on any positive signal. Larger positions, wider stops. High risk, high reward."
+    }
+  },
+  "active_trading_agent": "careful",
+  "autonomous_trading": false
+}
