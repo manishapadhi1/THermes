@@ -509,6 +509,14 @@ function renderMarketBar(){
   document.getElementById('marketBar').innerHTML=feed+' &nbsp;|&nbsp; '+S.indices.map(i=>`<span><strong>${i.name}</strong> ${i.value} <span class="${i.down?'change-down':'change-up'}">${i.change}</span></span>`).join(' &nbsp;|&nbsp; ');
 }
 
+async function refreshMarketData(){
+  try{
+    const [wl,status]=await Promise.all([api('/market/watchlist'),api('/market/status')]);
+    S.watchlist=wl;S.marketStatus=status;renderWatchlist();renderMarketBar();
+    if(S.selectedStock){const updated=S.watchlist.find(x=>x.symbol===S.selectedStock);if(updated&&S.detailTab==='chart') { renderDetail(S.selectedStock); }}
+  }catch(e){console.warn('Market refresh failed',e);}
+}
+
 function switchSB(tab){S.sidebarTab=tab;document.querySelectorAll('.sidebar-tab').forEach(t=>t.classList.toggle('active',t.textContent.toLowerCase().includes(tab)));document.getElementById('wlContainer').style.display=tab==='watchlist'?'block':'none';document.getElementById('pfContainer').style.display=tab==='portfolio'?'block':'none';}
 
 // ═══════════════════════════════════════════════
@@ -581,28 +589,42 @@ function switchDT(tab){
   const c=document.getElementById('dContent');const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(!s)return;
   const h=S.portfolio.holdings.find(x=>x.symbol===S.selectedStock);
   switch(tab){
-    case'chart':c.innerHTML=renderChart(s);setTimeout(()=>drawChart(s),50);break;
+    case'chart':c.innerHTML=renderChart(s);setTimeout(()=>loadChart(s),50);break;
     case'orderbook':c.innerHTML='<div class="card"><h4>Order Book</h4><div style="color:var(--tds-text-subtle)">Loading NSE/BSE market depth…</div></div>';loadOrderBook(s);break;
     case'technical':c.innerHTML=renderTechnical(s);break;
     case'fundamental':c.innerHTML=renderFundamental(s);break;
     case'sentiment':c.innerHTML=renderSentiment(s);break;
     case'trade':c.innerHTML=renderTrade(s,h);break;
-    default:c.innerHTML=renderChart(s);setTimeout(()=>drawChart(s),50);
+    default:c.innerHTML=renderChart(s);setTimeout(()=>loadChart(s),50);
   }
 }
 
 // ═══════════════════════════════════════════════
 // CHART
 // ═══════════════════════════════════════════════
-function renderChart(s){const tf=['1m','5m','15m','1h','1d','1mo','6mo','1y','5y','all'];return`<div class="card"><h4>Chart — ${s.symbol} <span id="tfLabel" style="color:var(--tds-text-subtle);font-size:9px">${S.chartTf}</span></h4><div class="timeframe-row">${tf.map(x=>`<button class="timeframe-btn ${x===S.chartTf?'active':''}" onclick="setTimeframe(this,'${x}')">${x}</button>`).join('')}</div><canvas class="chart-c" id="miniChart" width="340" height="180"></canvas><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--tds-text-subtle);margin-top:4px"><span>Start</span><span>Mid</span><span>Now</span></div></div><div class="card"><h4>Key Stats</h4>${[['Open','₹'+s.o.toFixed(s.o<100?2:0)],['High','₹'+s.h.toFixed(s.h<100?2:0)],['Low','₹'+s.l.toFixed(s.l<100?2:0)],['Prev Close','₹'+s.pc.toFixed(s.pc<100?2:0)],['Volume',(s.vol/100000).toFixed(2)+'L'],['Avg Vol',(s.avgVol/100000).toFixed(2)+'L'],['P/E',s.pe],['Mkt Cap','₹'+(s.mcap/1000).toFixed(0)+'K Cr']].map(([l,v])=>`<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`).join('')}</div>`;}
-function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const lab=document.getElementById('tfLabel');if(lab)lab.textContent=tf;const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)drawChart(s);}
+function renderChart(s){const tf=['1m','5m','15m','1h','1d','1mo','6mo','1y','5y','all'];return`<div class="card"><h4>Chart — ${s.symbol} <span id="tfLabel" style="color:var(--tds-text-subtle);font-size:9px">${S.chartTf}</span></h4><div class="timeframe-row">${tf.map(x=>`<button class="timeframe-btn ${x===S.chartTf?'active':''}" onclick="setTimeframe(this,'${x}')">${x}</button>`).join('')}</div><canvas class="chart-c" id="miniChart" width="340" height="180"></canvas><div id="chartStatus" style="font-size:9px;color:var(--tds-text-subtle);margin-top:4px">Loading candles…</div><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--tds-text-subtle);margin-top:4px"><span>Start</span><span>Mid</span><span>Now</span></div></div><div class="card"><h4>Key Stats</h4>${[['Open','₹'+s.o.toFixed(s.o<100?2:0)],['High','₹'+s.h.toFixed(s.h<100?2:0)],['Low','₹'+s.l.toFixed(s.l<100?2:0)],['Prev Close','₹'+s.pc.toFixed(s.pc<100?2:0)],['Volume',(s.vol/100000).toFixed(2)+'L'],['Avg Vol',(s.avgVol/100000).toFixed(2)+'L'],['P/E',s.pe],['Mkt Cap','₹'+(s.mcap/1000).toFixed(0)+'K Cr']].map(([l,v])=>`<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`).join('')}</div>`;}
+function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const lab=document.getElementById('tfLabel');if(lab)lab.textContent=tf;const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)loadChart(s);}
 
-function drawChart(s){
+async function loadChart(s){
+  const status=document.getElementById('chartStatus');
+  if(status)status.textContent='Loading candles…';
+  try{
+    const d=await api(`/market/intraday/${encodeURIComponent(s.symbol)}?tf=${encodeURIComponent(S.chartTf)}`);
+    if(status)status.textContent=`${d.source||'source'} · ${d.live?'live':'delayed/free'} · ${d.candles?.length||0} candles`;
+    drawChart(s,d.candles||[]);
+  }catch(e){
+    if(status)status.textContent=`Chart fetch failed: ${e.message}`;
+    drawChart(s,[]);
+  }
+}
+
+function drawChart(s,candles=[]){
   const canvas=document.getElementById('miniChart');if(!canvas)return;
   const ctx=canvas.getContext('2d');const W=canvas.width,H=canvas.height,pad={t:10,r:10,b:20,l:40},pw=W-pad.l-pad.r,ph=H-pad.t-pad.b;
-  const tfMul={"1m":0.18,"5m":0.28,"15m":0.42,"1h":0.65,"1d":1,"1mo":1.6,"6mo":2.2,"1y":2.8,"5y":4.2,"all":5.2}[S.chartTf]||1;
-  const pts=[];const n=60;
-  for(let i=0;i<n;i++){const t=i/(n-1);let p;if(S.chartTf==='1d'||S.chartTf==='1m'||S.chartTf==='5m'||S.chartTf==='15m'){if(t<0.3)p=s.o+(s.h-s.o)*(t/0.3)*(1+Math.sin(t*12)*0.1);else{const f=(t-0.3)/0.7;p=s.h-(s.h-s.ltp)*f+Math.sin(t*8)*((s.h-s.l)*0.03);}}else{const wave=Math.sin(t*Math.PI*2.2)*((s.h-s.l)*0.35*tfMul);const trend=(s.ltp-s.pc)*t*tfMul;p=s.pc+trend+wave;}p=Math.max(s.low52||0,p);pts.push(p);}
+  let pts=(candles||[]).map(c=>Number(c.c ?? c.close)).filter(x=>Number.isFinite(x));
+  if(!pts.length){pts=[s.pc,s.o,s.h,s.ltp,s.l];}
+  if(pts.length===1){pts=[pts[0]*0.999,pts[0],pts[0]*1.001];}
+  const n=pts.length;
   const minP=Math.min(...pts),maxP=Math.max(...pts);
   const yS=v=>pad.t+ph*(1-(v-minP)/(maxP-minP||1));
   ctx.clearRect(0,0,W,H);ctx.strokeStyle='rgba(58,81,124,0.2)';ctx.lineWidth=0.5;
@@ -1018,6 +1040,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.addEventListener('click',(e)=>{const pop=document.getElementById('dropdownPop');if(pop&&!pop.classList.contains('hidden')&&!pop.contains(e.target)&&!e.target.closest('.composer-pill')&&!e.target.closest('.composer-icon'))closeDropdown();});
   document.addEventListener('keydown',(e)=>{if(e.key==='Escape'){closeDropdown();closeSettings();}});
   window.addEventListener('resize',()=>{if(window.innerWidth>768){document.getElementById('sidebar').classList.remove('open');document.getElementById('detail').classList.remove('open');}});
+  setInterval(()=>{ if(!document.hidden) refreshMarketData(); }, 60000);
 });
 </script>
 </body>
