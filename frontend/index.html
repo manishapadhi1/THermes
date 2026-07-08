@@ -933,7 +933,7 @@ function renderSettingsContent(tab){
         </div>`).join('');
     }
     case'brokers':return`
-      <div class="provider-card"><div class="p-hdr"><span class="p-name">Kite by Zerodha</span><span class="sig neu-sig">CONNECT</span></div><label>API Key</label><input id="zerodhaKey" type="password" placeholder="Zerodha API Key"><label>API Secret</label><input id="zerodhaSecret" type="password" placeholder="Zerodha API Secret"><label>User ID</label><input id="zerodhaUser" placeholder="e.g. XK8892"><button class="btn-sm success" style="margin-top:8px" onclick="saveBrokerConfig('zerodha')">Save</button><button class="btn-sm primary" style="margin-top:8px" onclick="testBroker('zerodha')">Test Connection</button><div style="font-size:10px;color:var(--tds-text-subtle);margin-top:8px">Once connected, watchlist, market data, holdings and orders should be pulled from Kite APIs instead of static fallback data.</div></div>
+      <div class="provider-card"><div class="p-hdr"><span class="p-name">Kite by Zerodha</span><span class="sig neu-sig">CONNECT</span></div><label>API Key</label><input id="zerodhaKey" type="password" placeholder="Zerodha API Key"><label>API Secret</label><input id="zerodhaSecret" type="password" placeholder="Zerodha API Secret"><label>User ID</label><input id="zerodhaUser" placeholder="e.g. XK8892"><button class="btn-sm success" style="margin-top:8px" onclick="saveBrokerConfig('zerodha')">Save</button><button class="btn-sm primary" style="margin-top:8px" onclick="testBroker('zerodha')">Login / Test</button><div style="font-size:10px;color:var(--tds-text-subtle);margin-top:8px">Kite requires login after saving API key/secret. Market data can still use free Yahoo/NSE; Kite is for holdings, orders, positions and authenticated watchlists.</div></div>
       <div class="provider-card"><div class="p-hdr"><span class="p-name">Angel One / Angel Broking</span><span class="sig neu-sig">CONNECT</span></div><label>API Key</label><input id="angelKey" type="password" placeholder="Angel API Key"><label>Client ID</label><input id="angelClient" placeholder="Client ID"><label>Password / Token</label><input id="angelPassword" type="password" placeholder="Password or token"><button class="btn-sm success" style="margin-top:8px" onclick="saveBrokerConfig('angel_broking')">Save</button><button class="btn-sm primary" style="margin-top:8px" onclick="testBroker('angel_broking')">Test Connection</button></div>`;
     case'skills':return'<div style="color:var(--tds-text-subtle)">Loading skills from Hermes…</div>';
     case'memory':return'<div style="color:var(--tds-text-subtle)">Loading memory from Hermes…</div>';
@@ -983,7 +983,15 @@ async function saveBrokerConfig(broker){
   await api(`/brokers/${broker}`,{method:'PUT',body:JSON.stringify(body)});
   toast(`${broker} API settings saved`,'ok');
 }
-async function testBroker(broker){try{const r=await api(`/brokers/${broker}/test`,{method:'POST'});toast(r.message,'ok');}catch(e){toast('Connection failed','err');}}
+async function testBroker(broker){
+  try{
+    if(broker==='zerodha') await saveBrokerConfig('zerodha');
+    if(broker==='angel_broking') await saveBrokerConfig('angel_broking');
+    const r=await api(`/brokers/${broker}/test`,{method:'POST'});
+    if(r.status==='login_required'&&r.login_url){toast('Opening Kite login…','ok');window.open(r.login_url,'_blank');return;}
+    toast(r.message||'Connected','ok');
+  }catch(e){toast(`Connection failed: ${e.message}`,'err');}
+}
 async function activateAgent(type){await api('/agents/activate',{method:'PUT',body:JSON.stringify({agent_type:type})});toast(`Agent: ${type}`,'ok');}
 async function toggleAutonomous(enabled){await api('/agents/autonomous',{method:'PUT',body:JSON.stringify({enabled})});toast(`Autonomous ${enabled?'ON':'OFF'}`,'ok');}
 

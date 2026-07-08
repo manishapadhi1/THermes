@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 import math
+import hashlib
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -14,7 +15,7 @@ from datetime import datetime
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -41,6 +42,11 @@ def mask(v: Optional[str]) -> str:
     if not v:
         return ""
     return "••••" + str(v)[-4:] if len(str(v)) > 4 else "••••"
+
+KITE_BASE = "https://api.kite.trade"
+
+def zerodha_login_url(api_key: str) -> str:
+    return f"https://kite.zerodha.com/connect/login?api_key={api_key}&v=3"
 
 DEFAULT_SYMBOLS = ["NIITMTS", "TCS", "INFY", "RELIANCE", "ITC", "HDFCBANK", "SBIN", "YESBANK"]
 YAHOO_SUFFIX = ".NS"
@@ -627,6 +633,22 @@ async def test_broker(broker_name: str):
     broker = load_state().get("brokers", {}).get(broker_name, {})
     if not broker.get("api_key"):
         raise HTTPException(400, f"{broker_name} API key not configured")
+    if broker_name == "zerodha":
+        if not broker.get("access_token"):
+            return {
+                "status": "login_required",
+                "broker": broker_name,
+                "message": "Kite login required. Open the login URL, complete login, and Zerodha will redirect back to THermes.",
+                "login_url": zerodha_login_url(broker["api_key"]),
+            }
+        try:
+            async with httpx.AsyncClient(timeout=10.0, headers={"X-Kite-Version": "3", "Authorization": f"token {broker['api_key']}:{broker['access_token']}"}) as client:
+                r = await client.get(f"{KITE_BASE}/user/profile")
+                r.raise_for_status()
+                data = r.json().get("data", {})
+            return {"status": "ok", "broker": broker_name, "message": "Zerodha connected", "profile": data}
+        except Exception as e:
+            return {"status": "login_required", "broker": broker_name, "message": f"Stored Kite token failed; login again. {str(e)[:120]}", "login_url": zerodha_login_url(broker["api_key"])}
     return {
         "status": "ok",
         "broker": broker_name,
@@ -634,6 +656,40 @@ async def test_broker(broker_name: str):
         "account_id": "XK8892" if broker_name == "zerodha" else "AB12345",
         "balance": 450000.00
     }
+
+@app.get("/api/brokers/zerodha/login-url")
+async def zerodha_login():
+    broker = load_state().get("brokers", {}).get("zerodha", {})
+    if not broker.get("api_key"):
+        raise HTTPException(400, "Zerodha API key not configured")
+    return {"login_url": zerodha_login_url(broker["api_key"])}
+
+@app.get("/api/brokers/zerodha/callback")
+async def zerodha_callback(request_token: Optional[str] = None, status: Optional[str] = None):
+    if status and status != "success":
+        return HTMLResponse(f"<h2>Kite login failed</h2><p>Status: {status}</p>", status_code=400)
+    if not request_token:
+        return HTMLResponse("<h2>Missing request_token</h2>", status_code=400)
+    st = load_state()
+    broker = st.get("brokers", {}).get("zerodha", {})
+    api_key = broker.get("api_key")
+    api_secret = broker.get("api_secret")
+    if not api_key or not api_secret:
+        return HTMLResponse("<h2>Zerodha API key/secret not configured in THermes</h2>", status_code=400)
+    checksum = hashlib.sha256(f"{api_key}{request_token}{api_secret}".encode()).hexdigest()
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers={"X-Kite-Version": "3"}) as client:
+            r = await client.post(f"{KITE_BASE}/session/token", data={"api_key": api_key, "request_token": request_token, "checksum": checksum})
+            r.raise_for_status()
+            data = r.json().get("data", {})
+        broker["access_token"] = data.get("access_token", "")
+        broker["public_token"] = data.get("public_token", "")
+        broker["enabled"] = bool(broker.get("access_token"))
+        st.setdefault("brokers", {})["zerodha"] = broker
+        save_state(st)
+        return HTMLResponse("<h2>Zerodha connected to THermes ✅</h2><p>You can close this tab and return to THermes.</p>")
+    except Exception as e:
+        return HTMLResponse(f"<h2>Kite token exchange failed</h2><pre>{str(e)}</pre>", status_code=500)
 
 # ─── Trading Agents ────────────────────────────────────
 @app.get("/api/agents")
