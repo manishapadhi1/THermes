@@ -499,11 +499,12 @@ async def market_status():
     connected = [name for name, cfg in brokers.items() if cfg.get("enabled") and cfg.get("api_key")]
     provider = state_market_provider()
     return {
-        "live": bool(connected),
+        "live": False,
         "connected_brokers": connected,
-        "source": connected[0] if connected else provider,
+        "source": provider,
+        "broker_source": connected[0] if connected else None,
         "free_provider": provider,
-        "message": "Live broker feed active" if connected else f"Using free market data provider: {provider}. Broker APIs are only needed for orders/holdings."
+        "message": (f"Broker connected: {connected[0]}. Market data source: {provider}." if connected else f"Using free market data provider: {provider}. Broker APIs are only needed for orders/holdings.")
     }
 
 @app.get("/api/market/intraday/{symbol}")
@@ -582,8 +583,21 @@ async def get_orders():
 
 @app.get("/api/trade/portfolio")
 async def get_portfolio():
+    broker = load_state().get("brokers", {}).get("zerodha", {})
+    if broker.get("api_key") and broker.get("access_token"):
+        try:
+            async with httpx.AsyncClient(timeout=12.0, headers={"X-Kite-Version": "3", "Authorization": f"token {broker['api_key']}:{broker['access_token']}"}) as client:
+                r = await client.get(f"{KITE_BASE}/portfolio/holdings")
+                r.raise_for_status()
+                holdings = []
+                for h in r.json().get("data", []):
+                    holdings.append({"symbol": h.get("tradingsymbol"), "qty": h.get("quantity", 0), "avg": h.get("average_price", 0), "ltp": h.get("last_price", h.get("close_price", 0))})
+            return {"cash": None, "source": "zerodha", "holdings": holdings}
+        except Exception:
+            pass
     return {
         "cash": 124500,
+        "source": "fallback",
         "holdings": [
             {"symbol":"NIITMTS","qty":120,"avg":238.50,"ltp":246.33},
             {"symbol":"TCS","qty":15,"avg":3540,"ltp":3782.60},
@@ -605,6 +619,7 @@ async def get_brokers():
         for k in ["api_key", "api_secret", "password", "access_token"]:
             if k in b:
                 b[k] = mask(b.get(k))
+        b["connected"] = bool(b.get("enabled"))
     return safe
 
 class BrokerUpdate(BaseModel):

@@ -505,8 +505,9 @@ function renderIndices(){
 
 function renderMarketBar(){
   const feedLabel=S.marketStatus.live?'LIVE':(S.marketStatus.source&&S.marketStatus.source!=='fallback'?'FREE':'FALLBACK');
+  const broker=S.marketStatus.broker_source?`<span><strong>BROKER</strong> <span class="change-up">${esc(S.marketStatus.broker_source)}</span></span> &nbsp;|&nbsp; `:'';
   const feed=`<span><strong>${feedLabel}</strong> <span class="${S.marketStatus.live||feedLabel==='FREE'?'change-up':'change-down'}">${esc(S.marketStatus.source||'no broker')}</span></span>`;
-  document.getElementById('marketBar').innerHTML=feed+' &nbsp;|&nbsp; '+S.indices.map(i=>`<span><strong>${i.name}</strong> ${i.value} <span class="${i.down?'change-down':'change-up'}">${i.change}</span></span>`).join(' &nbsp;|&nbsp; ');
+  document.getElementById('marketBar').innerHTML=broker+feed+' &nbsp;|&nbsp; '+S.indices.map(i=>`<span><strong>${i.name}</strong> ${i.value} <span class="${i.down?'change-down':'change-up'}">${i.change}</span></span>`).join(' &nbsp;|&nbsp; ');
 }
 
 async function refreshMarketData(){
@@ -932,6 +933,7 @@ function renderSettings(tab){
 async function loadSettingsTab(tab){
   const body=document.querySelector('.modal-body'); if(!body)return;
   try{
+    if(tab==='brokers'){const d=await api('/brokers');body.innerHTML=settingsBrokersHtml(d);}
     if(tab==='marketdata'){const d=await api('/market/providers');body.innerHTML=settingsMarketDataHtml(d);}
     if(tab==='skills'){const d=await api('/skills');body.innerHTML=settingsSkillsHtml(d.skills||[]);}
     if(tab==='memory'){const d=await api('/memory');body.innerHTML=settingsMemoryHtml(d);}
@@ -954,9 +956,7 @@ function renderSettingsContent(tab){
           <input type="password" placeholder="${p.has_key?'•••• (key is set)':'Enter API key'}" onchange="saveProviderKey('${p.id}',this.value)">
         </div>`).join('');
     }
-    case'brokers':return`
-      <div class="provider-card"><div class="p-hdr"><span class="p-name">Kite by Zerodha</span><span class="sig neu-sig">CONNECT</span></div><label>API Key</label><input id="zerodhaKey" type="password" placeholder="Zerodha API Key"><label>API Secret</label><input id="zerodhaSecret" type="password" placeholder="Zerodha API Secret"><label>User ID</label><input id="zerodhaUser" placeholder="e.g. XK8892"><button class="btn-sm success" style="margin-top:8px" onclick="saveBrokerConfig('zerodha')">Save</button><button class="btn-sm primary" style="margin-top:8px" onclick="testBroker('zerodha')">Login / Test</button><div style="font-size:10px;color:var(--tds-text-subtle);margin-top:8px">Kite requires login after saving API key/secret. Market data can still use free Yahoo/NSE; Kite is for holdings, orders, positions and authenticated watchlists.</div></div>
-      <div class="provider-card"><div class="p-hdr"><span class="p-name">Angel One / Angel Broking</span><span class="sig neu-sig">CONNECT</span></div><label>API Key</label><input id="angelKey" type="password" placeholder="Angel API Key"><label>Client ID</label><input id="angelClient" placeholder="Client ID"><label>Password / Token</label><input id="angelPassword" type="password" placeholder="Password or token"><button class="btn-sm success" style="margin-top:8px" onclick="saveBrokerConfig('angel_broking')">Save</button><button class="btn-sm primary" style="margin-top:8px" onclick="testBroker('angel_broking')">Test Connection</button></div>`;
+    case'brokers':return'<div style="color:var(--tds-text-subtle)">Loading broker status…</div>';
     case'skills':return'<div style="color:var(--tds-text-subtle)">Loading skills from Hermes…</div>';
     case'memory':return'<div style="color:var(--tds-text-subtle)">Loading memory from Hermes…</div>';
     case'tasklist':return'<div style="color:var(--tds-text-subtle)">No active task list in this THermes session.</div>';
@@ -980,6 +980,12 @@ function settingsSkillsHtml(skills){
 }
 function settingsMarketDataHtml(d){
   return `<div class="card"><h4>Free market data provider</h4><div style="color:var(--tds-text-subtle);font-size:11px;margin-bottom:10px">Use this when you do not have Kite Connect credits. These feeds are free but may be delayed/rate-limited and cannot place orders.</div>${(d.providers||[]).map(p=>`<div class="provider-card"><div class="p-hdr"><span class="p-name">${esc(p.name)}</span><span class="sig ${p.id===d.active?'buy-sig':'neu-sig'}">${p.id===d.active?'ACTIVE':'AVAILABLE'}</span></div><div style="font-size:10px;color:var(--tds-text-subtle);margin:4px 0">${esc(p.note)}</div><button class="btn-sm primary" onclick="setMarketProvider('${esc(p.id)}')">Use ${esc(p.name)}</button></div>`).join('')}</div><div class="card"><h4>Broker APIs</h4><div style="font-size:11px;color:var(--tds-text-subtle)">Only needed for live account holdings, positions, orders and order placement. For chart/quote data, use the free providers above.</div><button class="btn-sm primary" style="margin-top:8px" onclick="renderSettings('brokers')">Configure Zerodha / Angel</button></div>`;
+}
+function settingsBrokersHtml(d){
+  const z=d.zerodha||{}; const a=d.angel_broking||{};
+  return `
+    <div class="provider-card"><div class="p-hdr"><span class="p-name">Kite by Zerodha</span><span class="sig ${z.connected?'buy-sig':'neu-sig'}">${z.connected?'CONNECTED':'CONNECT'}</span></div><label>API Key</label><input id="zerodhaKey" type="password" placeholder="${z.api_key||'Zerodha API Key'}"><label>API Secret</label><input id="zerodhaSecret" type="password" placeholder="${z.api_secret||'Zerodha API Secret'}"><label>User ID</label><input id="zerodhaUser" placeholder="${z.user_id||'e.g. XK8892'}"><button class="btn-sm success" style="margin-top:8px" onclick="saveBrokerConfig('zerodha')">Save</button><button class="btn-sm primary" style="margin-top:8px" onclick="testBroker('zerodha')">${z.connected?'Refresh/Test':'Login / Test'}</button><div style="font-size:10px;color:var(--tds-text-subtle);margin-top:8px">${z.connected?'Zerodha access token is stored. Holdings/orders can use Kite; quotes/charts can still use free Yahoo/NSE.':'Kite requires login after saving API key/secret. Market data can still use free Yahoo/NSE; Kite is for holdings, orders, positions and authenticated watchlists.'}</div></div>
+    <div class="provider-card"><div class="p-hdr"><span class="p-name">Angel One / Angel Broking</span><span class="sig ${a.connected?'buy-sig':'neu-sig'}">${a.connected?'CONNECTED':'CONNECT'}</span></div><label>API Key</label><input id="angelKey" type="password" placeholder="${a.api_key||'Angel API Key'}"><label>Client ID</label><input id="angelClient" placeholder="${a.client_id||'Client ID'}"><label>Password / Token</label><input id="angelPassword" type="password" placeholder="${a.password||'Password or token'}"><button class="btn-sm success" style="margin-top:8px" onclick="saveBrokerConfig('angel_broking')">Save</button><button class="btn-sm primary" style="margin-top:8px" onclick="testBroker('angel_broking')">Test Connection</button></div>`;
 }
 async function setMarketProvider(provider){await api('/market/provider',{method:'PUT',body:JSON.stringify({provider})});toast(`Market data provider: ${provider}`,'ok');const[wl,status]=await Promise.all([api('/market/watchlist'),api('/market/status')]);S.watchlist=wl;S.marketStatus=status;renderWatchlist();renderMarketBar();if(S.selectedStock)renderDetail(S.selectedStock);renderSettings('marketdata');}
 function settingsMemoryHtml(d){
