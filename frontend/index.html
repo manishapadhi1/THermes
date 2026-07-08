@@ -327,7 +327,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
     <div class="sep"></div>
     <select id="modelSelect" onchange="changeModel(this.value)" style="display:none"><option value="">Loading…</option></select>
     <div class="acct">A/C <strong>XK8892</strong></div>
-    <button class="settings-btn" id="settingsBtn" onclick="openSettings('brokers')" title="Settings">⚙</button>
+    <button class="settings-btn" id="settingsBtn" onclick="openSettings('marketdata')" title="Settings">⚙</button>
     <span class="acct" id="hermesStatus" style="display:none"></span>
   </div>
 
@@ -504,7 +504,8 @@ function renderIndices(){
 }
 
 function renderMarketBar(){
-  const feed=`<span><strong>${S.marketStatus.live?'LIVE':'FALLBACK'}</strong> <span class="${S.marketStatus.live?'change-up':'change-down'}">${esc(S.marketStatus.source||'no broker')}</span></span>`;
+  const feedLabel=S.marketStatus.live?'LIVE':(S.marketStatus.source&&S.marketStatus.source!=='fallback'?'FREE':'FALLBACK');
+  const feed=`<span><strong>${feedLabel}</strong> <span class="${S.marketStatus.live||feedLabel==='FREE'?'change-up':'change-down'}">${esc(S.marketStatus.source||'no broker')}</span></span>`;
   document.getElementById('marketBar').innerHTML=feed+' &nbsp;|&nbsp; '+S.indices.map(i=>`<span><strong>${i.name}</strong> ${i.value} <span class="${i.down?'change-down':'change-up'}">${i.change}</span></span>`).join(' &nbsp;|&nbsp; ');
 }
 
@@ -876,7 +877,7 @@ function filterDrop(q){q=(q||'').toLowerCase();document.querySelectorAll('.drop-
 // ═══════════════════════════════════════════════
 // SETTINGS MODAL — shows real Hermes providers
 // ═══════════════════════════════════════════════
-function openSettings(tab='brokers'){
+function openSettings(tab='marketdata'){
   // Open immediately; load Hermes providers asynchronously so click always feels responsive.
   S._providers = null;
   renderSettings(tab);
@@ -893,7 +894,7 @@ function renderSettings(tab){
     <div class="modal" onclick="event.stopPropagation()">
       <div class="modal-hdr"><h2>⚙ Settings</h2><button class="close-btn" onclick="closeSettings()">✕</button></div>
       <div class="modal-tabs">
-        ${['brokers','providers','skills','memory','tasklist','logs','agents'].map(t=>`<button data-tab="${t}" class="modal-tab${tab===t?' active':''}" onclick="renderSettings('${t}')">${({brokers:'Brokers',providers:'Providers',skills:'Skills',memory:'Memory',tasklist:'Tasklist',logs:'Logs',agents:'Agents'})[t]}</button>`).join('')}
+        ${['marketdata','brokers','providers','skills','memory','tasklist','logs','agents'].map(t=>`<button data-tab="${t}" class="modal-tab${tab===t?' active':''}" onclick="renderSettings('${t}')">${({marketdata:'Market Data',brokers:'Brokers',providers:'Providers',skills:'Skills',memory:'Memory',tasklist:'Tasklist',logs:'Logs',agents:'Agents'})[t]}</button>`).join('')}
       </div>
       <div class="modal-body">${renderSettingsContent(tab)}</div>
     </div>`;
@@ -904,6 +905,7 @@ function renderSettings(tab){
 async function loadSettingsTab(tab){
   const body=document.querySelector('.modal-body'); if(!body)return;
   try{
+    if(tab==='marketdata'){const d=await api('/market/providers');body.innerHTML=settingsMarketDataHtml(d);}
     if(tab==='skills'){const d=await api('/skills');body.innerHTML=settingsSkillsHtml(d.skills||[]);}
     if(tab==='memory'){const d=await api('/memory');body.innerHTML=settingsMemoryHtml(d);}
     if(tab==='logs'){const d=await api('/logs?tail=120');body.innerHTML=settingsLogsHtml(d);}
@@ -912,6 +914,7 @@ async function loadSettingsTab(tab){
 
 function renderSettingsContent(tab){
   switch(tab){
+    case'marketdata':return'<div style="color:var(--tds-text-subtle)">Loading market data providers…</div>';
     case'providers':{
       if(S._providers===null)return'<div class="card"><h4>Providers</h4><div style="color:var(--tds-text-subtle)">Loading providers from Hermes…</div></div>';
       const provs=S._providers||[];
@@ -948,6 +951,10 @@ function settingsSkillsHtml(skills){
   Object.entries(groups).forEach(([cat,items])=>{html+=`<div class="panel-section-title">⌄ ${cat} (${items.length})</div>`;html+=items.map(s=>`<div class="panel-list-item" data-filter="${esc((s.name+' '+s.description).toLowerCase())}"><button class="panel-toggle ${s.disabled?'off':''}" onclick="toggleSkill('${esc(s.name)}', ${s.disabled})"></button><strong>${esc(s.name)}</strong><span>${esc(s.description||'')}</span></div>`).join('');});
   return html;
 }
+function settingsMarketDataHtml(d){
+  return `<div class="card"><h4>Free market data provider</h4><div style="color:var(--tds-text-subtle);font-size:11px;margin-bottom:10px">Use this when you do not have Kite Connect credits. These feeds are free but may be delayed/rate-limited and cannot place orders.</div>${(d.providers||[]).map(p=>`<div class="provider-card"><div class="p-hdr"><span class="p-name">${esc(p.name)}</span><span class="sig ${p.id===d.active?'buy-sig':'neu-sig'}">${p.id===d.active?'ACTIVE':'AVAILABLE'}</span></div><div style="font-size:10px;color:var(--tds-text-subtle);margin:4px 0">${esc(p.note)}</div><button class="btn-sm primary" onclick="setMarketProvider('${esc(p.id)}')">Use ${esc(p.name)}</button></div>`).join('')}</div><div class="card"><h4>Broker APIs</h4><div style="font-size:11px;color:var(--tds-text-subtle)">Only needed for live account holdings, positions, orders and order placement. For chart/quote data, use the free providers above.</div><button class="btn-sm primary" style="margin-top:8px" onclick="renderSettings('brokers')">Configure Zerodha / Angel</button></div>`;
+}
+async function setMarketProvider(provider){await api('/market/provider',{method:'PUT',body:JSON.stringify({provider})});toast(`Market data provider: ${provider}`,'ok');const[wl,status]=await Promise.all([api('/market/watchlist'),api('/market/status')]);S.watchlist=wl;S.marketStatus=status;renderWatchlist();renderMarketBar();if(S.selectedStock)renderDetail(S.selectedStock);renderSettings('marketdata');}
 function settingsMemoryHtml(d){
   const sections=[['My Notes','memory'],['User Profile','user'],['Agent Soul','soul'],['Project Context','project_context']];
   return sections.map(([label,key])=>`<div class="card"><h4>${esc(label)}</h4><textarea class="c-input" style="width:100%;min-height:120px" id="mem_${key}">${esc(d[key]||'')}</textarea><button class="btn-sm primary" style="margin-top:8px" onclick="saveMemory('${key}')">Save</button></div>`).join('');

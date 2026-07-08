@@ -8,7 +8,7 @@ import os
 import secrets
 import math
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 import httpx
@@ -41,6 +41,82 @@ def mask(v: Optional[str]) -> str:
     if not v:
         return ""
     return "••••" + str(v)[-4:] if len(str(v)) > 4 else "••••"
+
+DEFAULT_SYMBOLS = ["NIITMTS", "TCS", "INFY", "RELIANCE", "ITC", "HDFCBANK", "SBIN", "YESBANK"]
+YAHOO_SUFFIX = ".NS"
+
+def state_market_provider() -> str:
+    st = load_state()
+    return st.get("market_data", {}).get("provider", "yahoo")
+
+def yahoo_symbol(symbol: str) -> str:
+    return symbol if "." in symbol else f"{symbol}{YAHOO_SUFFIX}"
+
+async def yahoo_quote(symbol: str) -> Optional[Dict[str, Any]]:
+    """Free Yahoo chart API. Usually delayed; not suitable for guaranteed exchange-real-time trading."""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol(symbol)}"
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            r = await client.get(url, params={"range": "1d", "interval": "1m"})
+            r.raise_for_status()
+            data = r.json()["chart"]["result"][0]
+            meta = data.get("meta", {})
+            quote = (data.get("indicators", {}).get("quote") or [{}])[0]
+            closes = [x for x in quote.get("close", []) if x is not None]
+            highs = [x for x in quote.get("high", []) if x is not None]
+            lows = [x for x in quote.get("low", []) if x is not None]
+            opens = [x for x in quote.get("open", []) if x is not None]
+            vols = [x for x in quote.get("volume", []) if x is not None]
+            if not closes:
+                return None
+            pc = meta.get("previousClose") or closes[0]
+            ltp = meta.get("regularMarketPrice") or closes[-1]
+            return {
+                "symbol": symbol,
+                "ltp": round(float(ltp), 2),
+                "change": round(float(ltp) - float(pc), 2),
+                "changePct": round(((float(ltp) - float(pc)) / float(pc) * 100), 2) if pc else 0,
+                "o": round(float(opens[0] if opens else closes[0]), 2),
+                "h": round(float(max(highs) if highs else max(closes)), 2),
+                "l": round(float(min(lows) if lows else min(closes)), 2),
+                "pc": round(float(pc), 2),
+                "vol": int(sum(vols)) if vols else 0,
+                "avgVol": int(meta.get("averageDailyVolume10Day") or meta.get("averageDailyVolume3Month") or 0),
+                "source": "yahoo",
+                "delay_note": "Free Yahoo Finance feed; may be delayed.",
+            }
+    except Exception:
+        return None
+
+async def nse_quote(symbol: str) -> Optional[Dict[str, Any]]:
+    """Best-effort NSE public endpoint. Unofficial, can rate-limit/block."""
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"}) as client:
+            await client.get("https://www.nseindia.com")
+            r = await client.get("https://www.nseindia.com/api/quote-equity", params={"symbol": symbol})
+            r.raise_for_status()
+            d = r.json()
+            info = d.get("priceInfo", {})
+            ltp = info.get("lastPrice")
+            pc = info.get("previousClose")
+            if ltp is None:
+                return None
+            return {
+                "symbol": symbol,
+                "ltp": round(float(ltp), 2),
+                "change": round(float(info.get("change", float(ltp)-float(pc or ltp))), 2),
+                "changePct": round(float(info.get("pChange", 0)), 2),
+                "o": round(float(info.get("open", ltp)), 2),
+                "h": round(float(info.get("intraDayHighLow", {}).get("max", ltp)), 2),
+                "l": round(float(info.get("intraDayHighLow", {}).get("min", ltp)), 2),
+                "pc": round(float(pc or ltp), 2),
+                "vol": int(d.get("securityInfo", {}).get("issuedSize", 0) or 0),
+                "avgVol": 0,
+                "source": "nse_public",
+                "delay_note": "Unofficial NSE public endpoint; may rate-limit/block.",
+            }
+    except Exception:
+        return None
 
 # ─── App ───────────────────────────────────────────────
 app = FastAPI(title="THermes Trading Platform")
@@ -259,11 +335,35 @@ async def proxy_session_new(request: Request):
 # ═══════════════════════════════════════════════════
 
 # ─── Market Data ───────────────────────────────────────
+@app.get("/api/market/providers")
+async def get_market_providers():
+    return {
+        "active": state_market_provider(),
+        "providers": [
+            {"id": "yahoo", "name": "Yahoo Finance", "free": True, "live": False, "note": "Free, usually delayed. Supports NSE symbols via .NS."},
+            {"id": "nse_public", "name": "NSE public endpoints", "free": True, "live": False, "note": "Unofficial, may rate-limit/block; best effort only."},
+            {"id": "fallback", "name": "Static fallback", "free": True, "live": False, "note": "Bundled demo values only."},
+        ]
+    }
+
+class MarketProviderUpdate(BaseModel):
+    provider: str
+    symbols: Optional[List[str]] = None
+
+@app.put("/api/market/provider")
+async def set_market_provider(update: MarketProviderUpdate):
+    if update.provider not in {"yahoo", "nse_public", "fallback"}:
+        raise HTTPException(400, "Unsupported market data provider")
+    st = load_state()
+    st["market_data"] = {"provider": update.provider, "symbols": update.symbols or st.get("market_data", {}).get("symbols", DEFAULT_SYMBOLS)}
+    save_state(st)
+    return {"status": "ok", "provider": update.provider}
+
 @app.get("/api/market/watchlist")
 async def get_watchlist():
-    # TODO: replace fallback below with Kite/Angel live watchlist once a broker is connected.
-    # The broker configuration is available from /api/brokers and persisted in state.json.
-    return [
+    provider = state_market_provider()
+    symbols = load_state().get("market_data", {}).get("symbols", DEFAULT_SYMBOLS)
+    fallback = [
         {"symbol":"NIITMTS","name":"NIIT Learning Systems","ltp":246.33,"change":1.74,"changePct":0.71,
          "o":247.00,"h":261.51,"l":241.55,"pc":244.59,"vol":1449000,"avgVol":739000,
          "pe":13.95,"high52":443.90,"low52":203.30,"eps":17.66,"mcap":3390,
@@ -297,6 +397,19 @@ async def get_watchlist():
          "pe":18.5,"high52":32,"low52":15,"eps":1.15,"mcap":62000,
          "sector":"Banking","sentiment":{"bull":30,"neutral":35,"bear":35}},
     ]
+    meta = {x["symbol"]: x for x in fallback}
+    if provider in {"yahoo", "nse_public"}:
+        rows = []
+        for sym in symbols:
+            q = await (yahoo_quote(sym) if provider == "yahoo" else nse_quote(sym))
+            base = meta.get(sym, {"symbol": sym, "name": sym, "pe": 0, "high52": 0, "low52": 0, "eps": 0, "mcap": 0, "sector": "", "sentiment": {"bull": 50, "neutral": 30, "bear": 20}})
+            if q:
+                rows.append({**base, **q, "name": base.get("name", sym)})
+            elif base:
+                rows.append({**base, "source": "fallback", "delay_note": f"{provider} unavailable for {sym}; fallback used."})
+        if rows:
+            return rows
+    return [{**x, "source": "fallback", "delay_note": "Static fallback data."} for x in fallback]
 
 @app.get("/api/market/indices")
 async def get_indices():
@@ -311,11 +424,13 @@ async def get_indices():
 async def market_status():
     brokers = load_state().get("brokers", {})
     connected = [name for name, cfg in brokers.items() if cfg.get("enabled") and cfg.get("api_key")]
+    provider = state_market_provider()
     return {
         "live": bool(connected),
         "connected_brokers": connected,
-        "source": connected[0] if connected else "fallback",
-        "message": "Live broker feed active" if connected else "No broker connected. Configure Kite/Angel APIs in Settings → Brokers."
+        "source": connected[0] if connected else provider,
+        "free_provider": provider,
+        "message": "Live broker feed active" if connected else f"Using free market data provider: {provider}. Broker APIs are only needed for orders/holdings."
     }
 
 @app.get("/api/market/intraday/{symbol}")
