@@ -50,6 +50,8 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 /* SIDEBAR */
 .sidebar{display:flex;flex-direction:column;background:var(--tds-surface-01);border-right:1px solid rgba(58,81,124,0.3);overflow:hidden;z-index:10;}
 .sidebar-section{padding:var(--space-12) var(--space-16);border-bottom:1px solid rgba(58,81,124,0.2);}
+.sidebar-section:first-child{flex:1;min-height:0;overflow-y:auto;}
+.sidebar-section:last-child{flex:0 0 auto;max-height:150px;overflow:auto;}
 .sidebar-section h3{font-family:var(--font-display);font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--tds-text-subtle);margin-bottom:var(--space-8);}
 .sidebar-tabs{display:flex;gap:4px;margin-bottom:var(--space-12);}
 .sidebar-tab{flex:1;text-align:center;padding:5px 0;font-family:var(--font-compact);font-size:11px;font-weight:600;color:var(--tds-text-subtle);background:transparent;border:1px solid transparent;border-radius:var(--radius-card);cursor:pointer;}
@@ -130,11 +132,13 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 .verdict-badge.sell{background:rgba(234,72,81,0.15);color:var(--tds-danger);border:1px solid rgba(234,72,81,0.4);}
 .verdict-badge.hold{background:rgba(241,194,27,0.12);color:var(--tds-warning);border:1px solid rgba(241,194,27,0.35);}
 .verdict-badge.avoid{background:rgba(234,72,81,0.08);color:var(--tds-danger);border:1px solid rgba(234,72,81,0.25);}
+.verdict-badge.data{background:rgba(58,81,124,0.20);color:var(--tds-text-subtle);border:1px solid rgba(170,201,246,0.28);}
 .vdot{width:7px;height:7px;border-radius:50%;}
 .verdict-badge.buy .vdot{background:var(--tds-success);box-shadow:0 0 6px var(--tds-success);}
 .verdict-badge.sell .vdot{background:var(--tds-danger);box-shadow:0 0 6px var(--tds-danger);}
 .verdict-badge.hold .vdot{background:var(--tds-warning);box-shadow:0 0 6px var(--tds-warning);}
 .verdict-badge.avoid .vdot{background:var(--tds-danger);}
+.verdict-badge.data .vdot{background:var(--tds-text-subtle);}
 
 /* ENTRY/EXIT STRIP */
 .ee-strip{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:8px 16px;margin:0 16px 8px;background:var(--tds-surface-02);border:1px solid rgba(58,81,124,0.25);border-radius:var(--radius-card);}
@@ -505,7 +509,7 @@ function renderPortfolio(){
   const source=S.portfolio.source||'fallback';
   const status=`<div style="padding:4px 0;font-size:10px;color:var(--tds-text-subtle)">Source: <strong style="color:${source==='zerodha'?'var(--tds-success)':'var(--tds-warning)'}">${source}</strong>${S.portfolio.message?`<br>${esc(S.portfolio.message)}`:''}${S.portfolio.error?`<br><span style="color:var(--tds-danger)">${esc(S.portfolio.error)}</span>`:''}${S.portfolio.cash?`<br>Cash: <strong style="color:var(--tds-text-strong)">₹${S.portfolio.cash.toLocaleString()}</strong>`:''}</div>`;
   if(!holdings.length){document.getElementById('pfContainer').innerHTML=status+`<div style="padding:12px 4px;color:var(--tds-text-subtle);font-size:11px">No holdings returned from ${source}. If you only have intraday positions, check Kite positions; holdings can be empty.</div>`;return;}
-  const h=holdings.map(h=>{const s=S.watchlist.find(w=>w.symbol===h.symbol);const ltp=s?s.ltp:h.ltp;const pnl=((ltp-h.avg)*h.qty).toFixed(0);const pp=h.avg?((ltp-h.avg)/h.avg*100).toFixed(1):'0.0';const pc=pnl>=0?'change-up':'change-down';const sg=pnl>=0?'+':'';return `<div class="wl-item" onclick="selectStock('${h.symbol}')"><div><div class="sym">${h.symbol} <span style="font-size:10px;color:var(--tds-text-subtle)">${h.qty} sh</span></div><div class="name">Avg ₹${h.avg}</div></div><div style="text-align:right"><div class="pr">₹${Number(ltp||0).toFixed(ltp<100?2:0)}</div><div class="ch ${pc}">${sg}₹${pnl} (${sg}${pp}%)</div></div></div>`;}).join('');
+  const h=holdings.map(h=>{const s=S.watchlist.find(w=>w.symbol===h.symbol);const ltp=s?s.ltp:h.ltp;const pnl=((ltp-h.avg)*h.qty).toFixed(0);const pp=h.avg?((ltp-h.avg)/h.avg*100).toFixed(1):'0.0';const pc=pnl>=0?'change-up':'change-down';const sg=pnl>=0?'+':'';return `<div class="wl-item" onclick="selectPortfolioStock('${h.symbol}')"><div><div class="sym">${h.symbol} <span style="font-size:10px;color:var(--tds-text-subtle)">${h.qty} sh</span></div><div class="name">Avg ₹${h.avg}</div></div><div style="text-align:right"><div class="pr">₹${Number(ltp||0).toFixed(ltp<100?2:0)}</div><div class="ch ${pc}">${sg}₹${pnl} (${sg}${pp}%)</div></div></div>`;}).join('');
   document.getElementById('pfContainer').innerHTML=status+h;
 }
 
@@ -550,6 +554,19 @@ function selectStock(sym){
   const d=document.getElementById('detail');d.classList.remove('hidden');
   if(window.innerWidth<=768)d.classList.add('open');
 }
+async function selectPortfolioStock(sym){
+  let s=S.watchlist.find(w=>w.symbol===sym);
+  if(!s){
+    const h=(S.portfolio.holdings||[]).find(x=>x.symbol===sym)||{};
+    s={symbol:sym,name:sym,ltp:Number(h.ltp||0),change:0,changePct:0,o:Number(h.ltp||0),h:Number(h.ltp||0),l:Number(h.ltp||0),pc:Number(h.avg||h.ltp||0),vol:0,avgVol:0,pe:0,high52:0,low52:0,eps:0,mcap:0,sector:'Portfolio',sentiment:{bull:50,neutral:30,bear:20},source:'zerodha'};
+    try{
+      const q=await api(`/market/quote/${encodeURIComponent(sym)}`);
+      s={...s,...q,ltp:Number(q.ltp||s.ltp),pc:Number(q.pc||s.pc),sector:q.sector||'Portfolio'};
+    }catch(e){console.warn('Quote enrichment failed',e);}
+    S.watchlist=[...S.watchlist,s];
+  }
+  selectStock(sym);
+}
 function closeDetail(){
   S.selectedStock=null;renderWatchlist();renderPortfolio();
   document.getElementById('detail').classList.add('hidden');
@@ -558,6 +575,7 @@ function closeDetail(){
 }
 
 function computeVerdict(s){
+  if(!hasReliableAnalysis(s))return 'data';
   let score=0;const vr=s.vol/s.avgVol;const nh=(s.ltp/s.h)*100;
   if(nh>97&&vr>1.5)score+=3;else if(nh>95&&vr>1.2)score+=2;else if(vr>2)score-=1;
   if(s.change>=0)score+=1;else score-=1;
@@ -568,6 +586,7 @@ function computeVerdict(s){
   const dfh=(s.high52-s.ltp)/s.high52;if(dfh>0.4)score+=1;
   if(score>=5)return'buy';if(score>=2)return'hold';if(score>=-1)return'avoid';return'sell';
 }
+function hasReliableAnalysis(s){return Number(s.pe)>0 && Number(s.high52)>0 && s.sentiment && (s.sentiment.bull||0)>0;}
 
 function computeEE(s){
   const pivot=(s.h+s.l+s.ltp)/3;s1=2*pivot-s.h;r1=2*pivot-s.l;
@@ -582,12 +601,13 @@ function renderDetail(sym){
   const cc=s.change>=0?'change-up':'change-down';const sg=s.change>=0?'+':'';
   const h=S.portfolio.holdings.find(x=>x.symbol===sym);
   const v=computeVerdict(s);const ee=computeEE(s);
-  const vl={buy:'BUY',sell:'SELL',hold:'HOLD',avoid:'AVOID'};
+  const vl={buy:'BUY',sell:'SELL',hold:'HOLD',avoid:'AVOID',data:'DATA'};
 
   document.getElementById('detail').innerHTML=`
     <div class="detail-hdr"><div style="display:flex;align-items:center;gap:10px"><h2>${s.symbol}</h2><span class="verdict-badge ${v}"><span class="vdot"></span>${vl[v]}</span></div><button class="close-btn" onclick="closeDetail()">✕</button></div>
     <div style="font-size:10px;color:var(--tds-text-subtle);padding:0 16px 4px">${s.name} · ${s.sector} · P/E ${s.pe}</div>
     <div class="d-price"><span class="p">₹${s.ltp.toFixed(s.ltp<100?2:0)}</span><span class="ch ${cc}">${sg}₹${Math.abs(s.change).toFixed(2)} (${sg}${s.changePct}%)</span></div>
+    ${v==='data'?`<div style="padding:0 16px 8px;color:var(--tds-warning);font-size:11px">Fundamental/sentiment data is incomplete for this symbol. Recommendations are disabled until data is available. <button class="btn-sm primary" onclick="askHermesResearch('${s.symbol}')">Ask Hermes to research</button></div>`:''}
     <div class="ee-strip">
       <div class="ee-item entry"><div class="el">🎯 Entry</div><div class="ev">₹${ee.entry.toFixed(2)}</div><div class="es">${((ee.entry/s.ltp-1)*100).toFixed(1)}% from CMP</div></div>
       <div class="ee-item stop"><div class="el">🛑 Stop Loss</div><div class="ev">₹${ee.stop.toFixed(2)}</div><div class="es">${((1-ee.stop/s.ltp)*100).toFixed(1)}% risk</div></div>
@@ -799,6 +819,13 @@ async function sendMsg(){
     evtSource.addEventListener('error',()=>{evtSource.close();if(!fullText){sc.innerHTML='<em>No response from agent.</em>';d.removeAttribute('id');}});
     evtSource.addEventListener('stream_end',()=>{evtSource.close();d.removeAttribute('id');});
   }catch(e){console.warn('Chat error:',e);d.remove();addMsg('agent',`**⚠️ Hermes Agent Error**\n\nCould not reach the Hermes agent on port 8787. Make sure Hermes WebUI is running.\n\n**Error:** ${e.message}`);}
+}
+
+function askHermesResearch(symbol){
+  const input=document.getElementById('cInput');
+  input.value=`Research ${symbol} stock for THermes. Get latest market price, P/E, EPS, market cap, 52-week high/low, revenue/profit growth, ROE/ROCE if available, news sentiment, technical levels, support/resistance, and give a cautious BUY/HOLD/SELL/Avoid recommendation with entry, stop loss and target. If data is unavailable, say exactly what is missing.`;
+  input.focus();
+  sendMsg();
 }
 
 function setGoal(goal){
