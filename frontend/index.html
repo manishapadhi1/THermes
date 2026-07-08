@@ -645,9 +645,10 @@ function renderDetail(sym){
   // Always merge enriched data into the stock object
   const enrich=S.enriched?.[sym];
   if(enrich){
+    function merge(v,ev){return (ev!=null&&ev!==0)?ev:v;}
     s={...s,
-      pe:enrich.pe??s.pe, eps:enrich.eps??s.eps, mcap:enrich.mcap??s.mcap,
-      high52:enrich.high52??s.high52, low52:enrich.low52??s.low52,
+      pe:merge(s.pe,enrich.pe), eps:merge(s.eps,enrich.eps), mcap:merge(s.mcap,enrich.mcap),
+      high52:merge(s.high52,enrich.high52), low52:merge(s.low52,enrich.low52),
       sector:enrich.sector||s.sector,
       sentiment:enrich.sentiment||s.sentiment,
       researchVerdict:enrich.researchVerdict||s.researchVerdict,
@@ -927,11 +928,13 @@ function applyResearchData(symbol,data){
   s.name=data.name||funda.name||s.name;
   // Strip screener.in boilerplate from name
   if(s.name){s.name=s.name.replace(/^Share price \| About\s*/,'').replace(/\s*\| Key Insights - Screener\s*$/,'').trim();}
-  s.pe=Number(data.pe||funda.pe||s.pe);
-  s.eps=Number(data.eps||funda.eps||s.eps);
-  s.mcap=Number(data.mcap||funda.mcap||s.mcap);
-  s.high52=Number(data.high52||funda.high52||s.high52);
-  s.low52=Number(data.low52||funda.low52||s.low52);
+  // Only update fields that have actual non-null, non-zero values from enrichment
+  function safeNum(v){return v!=null&&v!==0&&!isNaN(Number(v))?Number(v):null;}
+  const np=safeNum(data.pe)??safeNum(funda.pe); if(np!=null)s.pe=np;
+  const ne=safeNum(data.eps)??safeNum(funda.eps); if(ne!=null)s.eps=ne;
+  const nm=safeNum(data.mcap)??safeNum(funda.mcap); if(nm!=null)s.mcap=nm;
+  const nh=safeNum(data.high52)??safeNum(funda.high52); if(nh!=null)s.high52=nh;
+  const nl=safeNum(data.low52)??safeNum(funda.low52); if(nl!=null)s.low52=nl;
   s.sector=funda.sector||s.sector||'';
   if(senti.sentiment)s.sentiment={bull:Number(senti.sentiment.bull||0),neutral:Number(senti.sentiment.neutral||0),bear:Number(senti.sentiment.bear||0)};
   if(funda.roce)s.roce=Number(funda.roce);
