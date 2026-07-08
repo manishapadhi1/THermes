@@ -867,61 +867,68 @@ async function sendMsg(opts={}){
   }catch(e){console.warn('Chat error:',e);if(!opts.silent){d.remove();addMsg('agent',`**⚠️ Hermes Agent Error**\n\nCould not reach the Hermes agent on port 8787. Make sure Hermes WebUI is running.\n\n**Error:** ${e.message}`);} if(opts.onError)opts.onError(e);}
 }
 
-function researchPrompt(symbol){
-  return `Research ${symbol} stock for THermes and return a concise answer plus a final machine-readable JSON block.
+function researchPrompt(symbol){ return `Research ${symbol}`; } // kept for compat, no longer used
+function askHermesResearch(symbol){ runEnrichment(symbol,{silent:false,force:true}); }
 
-Use public sources including Screener.in if accessible, StockAnalysis, company filings/results, latest news snippets, and market quote/chart sources. Perform fundamental, technical and sentiment analysis.
-
-Include P/E, EPS, market cap, 52-week high/low, revenue/profit growth, ROE/ROCE if available, sentiment percentages, support/resistance, recommendation, entry, stop_loss, target.
-
-At the very end output exactly one JSON code block with this schema:
-\`\`\`json
-{"symbol":"${symbol}","name":"","ltp":0,"pe":0,"eps":0,"mcap":0,"high52":0,"low52":0,"sector":"","sentiment":{"bull":0,"neutral":0,"bear":0},"recommendation":"HOLD","entry":0,"stop_loss":0,"target":0,"notes":""}
-\`\`\`
-If a field is unknown, use null.`;
-}
-function askHermesResearch(symbol){
-  runEnrichment(symbol,{silent:false,force:true});
-}
-function runEnrichment(symbol,{silent=true,force=false}={}){
-  const existing=S.enriched?.[symbol];
-  if(existing&&!force&&existing.researchedAt&&Date.now()-existing.researchedAt<6*60*60*1000)return;
-  markResearchStatus(symbol,'Researching…');
-  return sendMsg({textOverride:researchPrompt(symbol),userLabel:`Research and enrich ${symbol}`,silent,onDone:(txt)=>applyResearch(symbol,txt),onError:()=>markResearchStatus(symbol,'Research failed')});
-}
 function markResearchStatus(symbol,msg){if(S.selectedStock===symbol){const el=document.getElementById('researchStatus');if(el)el.innerHTML=`<span class="loading-inline"><span class="pulse-dot"></span>${esc(msg)}</span>`;}}
 
-/* old implementation kept for context replaced by runEnrichment */
-function askHermesResearch_old(symbol){
-  const prompt=`Research ${symbol} stock for THermes and return a concise answer plus a final machine-readable JSON block.
-
-Find latest quote/fundamentals/sentiment from public sources. Include P/E, EPS, market cap, 52-week high/low, revenue/profit growth, ROE/ROCE if available, sentiment percentages, support/resistance, recommendation, entry, stop_loss, target.
-
-At the very end output exactly one JSON code block with this schema:
-\`\`\`json
-{"symbol":"${symbol}","name":"","ltp":0,"pe":0,"eps":0,"mcap":0,"high52":0,"low52":0,"sector":"","sentiment":{"bull":0,"neutral":0,"bear":0},"recommendation":"HOLD","entry":0,"stop_loss":0,"target":0,"notes":""}
-\`\`\`
-If a field is unknown, use null.`;
-  sendMsg({textOverride:prompt,userLabel:`Research and enrich ${symbol}`,onDone:(txt)=>applyResearch(symbol,txt)});
+async function runEnrichment(symbol,{silent=true,force=false}={}){
+  const existing=S.enriched?.[symbol];
+  if(existing&&!force&&existing.researchedAt&&Date.now()-existing.researchedAt<6*60*60*1000)return;
+  markResearchStatus(symbol,'Fetching fundamentals from screener.in…');
+  try{
+    const data=await api(`/enrich/${encodeURIComponent(symbol)}`);
+    if(!data||!data.pe&&!data.technical?.success){
+      markResearchStatus(symbol,'No data found for this symbol');
+      return;
+    }
+    applyResearchData(symbol,data);
+    markResearchStatus(symbol,'Analysis refreshed from screener.in + technicals + news');
+  }catch(e){
+    markResearchStatus(symbol,'Analysis fetch failed');
+    console.warn('Enrich failed',symbol,e);
+  }
 }
 
-function parseResearchPayload(text){
-  const block=text.match(/```json\s*([\s\S]*?)```/i)||text.match(/\{[\s\S]*"symbol"[\s\S]*\}/);
-  if(block){try{return JSON.parse((block[1]||block[0]).trim());}catch(e){console.warn('Research JSON parse failed',e);}}
-  const num=(re)=>{const m=text.match(re);return m?Number(String(m[1]).replace(/[,₹]/g,'')):null;};
-  const rec=(text.match(/\b(BUY|SELL|HOLD|AVOID)\b/i)||[])[1]||null;
-  return {pe:num(/P\/?E[^0-9]{0,20}([0-9,.]+)/i),eps:num(/EPS[^0-9₹]{0,20}₹?([0-9,.]+)/i),entry:num(/entry[^0-9₹]{0,20}₹?([0-9,.]+)/i),stop_loss:num(/stop[^0-9₹]{0,20}₹?([0-9,.]+)/i),target:num(/target[^0-9₹]{0,20}₹?([0-9,.]+)/i),recommendation:rec};
-}
-function applyResearch(symbol,text){
-  const data=parseResearchPayload(text); if(!data)return toast('No structured research data found','err');
-  let s=S.watchlist.find(w=>w.symbol===symbol); if(!s)return;
-  const maybe=(v,old)=>v===null||v===undefined||v===''?old:v;
-  s.name=maybe(data.name,s.name); s.ltp=Number(maybe(data.ltp,s.ltp)); s.pe=Number(maybe(data.pe,s.pe)); s.eps=Number(maybe(data.eps,s.eps)); s.mcap=Number(maybe(data.mcap,s.mcap)); s.high52=Number(maybe(data.high52,s.high52)); s.low52=Number(maybe(data.low52,s.low52)); s.sector=maybe(data.sector,s.sector);
-  if(data.sentiment)s.sentiment={bull:Number(data.sentiment.bull||0),neutral:Number(data.sentiment.neutral||0),bear:Number(data.sentiment.bear||0)};
-  s.researchVerdict=data.recommendation||data.verdict; s.researchEntry=data.entry; s.researchStop=data.stop_loss||data.stop; s.researchTarget=data.target; s.researchNotes=data.notes||''; s.fundamentals_available=!!(s.pe||s.eps||s.mcap);
-  S.enriched[symbol]={...(S.enriched[symbol]||{}),name:s.name,pe:s.pe,eps:s.eps,mcap:s.mcap,high52:s.high52,low52:s.low52,sector:s.sector,sentiment:s.sentiment,researchVerdict:s.researchVerdict,researchEntry:s.researchEntry,researchStop:s.researchStop,researchTarget:s.researchTarget,researchNotes:s.researchNotes,fundamentals_available:s.fundamentals_available,researchedAt:Date.now()};
+function applyResearchData(symbol,data){
+  let s=S.watchlist.find(w=>w.symbol===symbol);
+  if(!s)return;
+  const funda=data.fundamental||{};
+  const tech=data.technical||{};
+  const senti=data.sentiment||{};
+
+  s.name=data.name||funda.name||s.name;
+  s.pe=Number(data.pe||funda.pe||s.pe);
+  s.eps=Number(data.eps||funda.eps||s.eps);
+  s.mcap=Number(data.mcap||funda.mcap||s.mcap);
+  s.high52=Number(data.high52||funda.high52||s.high52);
+  s.low52=Number(data.low52||funda.low52||s.low52);
+  s.sector=funda.sector||s.sector||'';
+  if(senti.sentiment)s.sentiment={bull:Number(senti.sentiment.bull||0),neutral:Number(senti.sentiment.neutral||0),bear:Number(senti.sentiment.bear||0)};
+  if(funda.roce)s.roce=Number(funda.roce);
+  if(funda.roe)s.roe=Number(funda.roe);
+  if(funda.debt_equity)s.debtEquity=Number(funda.debt_equity);
+  if(funda.promoter_holding)s.promoterHolding=Number(funda.promoter_holding);
+  if(funda.revenue)s.revenue=Number(funda.revenue);
+  if(funda.profit)s.profit=Number(funda.profit);
+
+  s.researchVerdict=tech.recommendation||data.recommendation||'HOLD';
+  s.researchEntry=data.entry||tech.s1;
+  s.researchStop=data.stop_loss||(tech.s1?Number(tech.s1)*0.95:null);
+  s.researchTarget=data.target||tech.r1;
+  s.researchNotes=`screener.in · ${tech.source||'computed'} technicals · ${senti.source||'news'} sentiment`;
+  s.fundamentals_available=!!(s.pe||s.eps||s.mcap);
+
+  S.enriched[symbol]={...S.enriched[symbol]||{},
+    name:s.name,pe:s.pe,eps:s.eps,mcap:s.mcap,high52:s.high52,low52:s.low52,
+    sector:s.sector,sentiment:s.sentiment,
+    researchVerdict:s.researchVerdict,researchEntry:s.researchEntry,
+    researchStop:s.researchStop,researchTarget:s.researchTarget,
+    researchNotes:s.researchNotes,fundamentals_available:s.fundamentals_available,
+    researchedAt:Date.now()};
   saveEnrichedSymbol(symbol);
-  renderWatchlist(); renderPortfolio(); if(S.selectedStock===symbol)renderDetail(symbol); toast(`${symbol} enriched from Hermes research`,'ok');
+  renderWatchlist();renderPortfolio();
+  if(S.selectedStock===symbol)renderDetail(symbol);
 }
 
 function setGoal(goal){

@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 import math
+import re
 import hashlib
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -484,6 +485,285 @@ class WatchlistSymbol(BaseModel):
 
 class WatchlistOrder(BaseModel):
     symbols: List[str]
+
+# ═══════════════════════════════════════════════════════
+# ANALYSIS: Screener.in scraper, Technical, Sentiment
+# ═══════════════════════════════════════════════════════
+
+SCREENER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml",
+}
+
+async def scrape_screener(symbol: str) -> Dict[str, Any]:
+    """Scrape fundamental data from screener.in for a given symbol."""
+    url = f"https://www.screener.in/company/{symbol.upper()}/consolidated/"
+    result = {"source": "screener.in", "success": False, "symbol": symbol.upper()}
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers=SCREENER_HEADERS, follow_redirects=True) as client:
+            r = await client.get(url)
+            if r.status_code != 200:
+                result["error"] = f"HTTP {r.status_code}"
+                return result
+            html = r.text
+
+            def extract(pat, idx=0):
+                m = re.search(pat, html, re.DOTALL)
+                if not m:
+                    return None
+                g = m.groups()
+                val = g[idx] if idx < len(g) else g[0]
+                return val.replace(",", "").strip()
+
+            def extract_num(pat, idx=0):
+                v = extract(pat, idx)
+                if v is None:
+                    return None
+                try:
+                    return float(v)
+                except ValueError:
+                    return None
+
+            result["name"] = (re.search(r'<title>([^<]+)</title>', html) or [None, symbol])[1]
+            result["pe"] = extract_num(r'Stock P/E.*?class="number"[^>]*>([\d.]+)')
+            result["book_value"] = extract_num(r'Book Value.*?class="number"[^>]*>([\d,.]+)')
+            result["mcap"] = extract_num(r'Market Cap.*?class="number"[^>]*>([\d,.]+)')
+            hl = re.search(r'High / Low.*?class="number"[^>]*>([\d,.]+).*?/\s*.*?class="number"[^>]*>([\d,.]+)', html, re.DOTALL)
+            if hl:
+                result["high52"] = float(hl.group(1).replace(",", ""))
+                result["low52"] = float(hl.group(2).replace(",", ""))
+            result["roce"] = extract_num(r'ROCE.*?class="number"[^>]*>([\d.]+)\s*%', 0) or extract_num(r'ROCE.*?<span class="number"[^>]*>([\d.]+)', 0)
+            result["roe"] = extract_num(r'ROE.*?class="number"[^>]*>([\d.]+)\s*%', 0) or extract_num(r'ROE.*?<span class="number"[^>]*>([\d.]+)', 0)
+            result["eps"] = extract_num(r'EPS.*?<span class="number"[^>]*>₹?([\d,.]+)', 0)
+            # Fallback: extract EPS from quarterly results table (last numeric value in EPS row)
+            if result["eps"] is None:
+                eps_section = re.search(r'EPS in Rs(.*?)</tr>', html, re.DOTALL)
+                if eps_section:
+                    all_nums = re.findall(r'<td[^>]*>\s*([\d.]+)\s*</td>', eps_section.group(1))
+                    if all_nums:
+                        result["eps"] = float(all_nums[-1])  # most recent quarter
+
+            # Revenue/Profit from the overview line
+            overview = re.search(r'Revenue:\s*([\d,]+)\s*Cr.*?Profit:\s*([\d,]+)\s*Cr', html, re.DOTALL)
+            if overview:
+                result["revenue"] = float(overview.group(1).replace(",", ""))
+                result["profit"] = float(overview.group(2).replace(",", ""))
+
+            # Promoter holding and working capital
+            promoter = re.search(r'Promoter holding.*?:\s*([\d.]+)%', html, re.DOTALL)
+            if promoter:
+                result["promoter_holding"] = float(promoter.group(1))
+            wc = re.search(r'Working capital days.*?from\s*([\d.]+)\s*days?\s*to\s*([\d.]+)\s*days?', html, re.DOTALL)
+            if wc:
+                result["working_capital_days"] = {"from": float(wc.group(1)), "to": float(wc.group(2))}
+
+            result["success"] = bool(result.get("pe"))
+
+            # Try to find debt/equity and OPM from the ratios section
+            for line in html.split('\n'):
+                if 'Debt to equity' in line:
+                    de = re.search(r'class="number"[^>]*>([\d.]+)', line)
+                    if de:
+                        result["debt_equity"] = float(de.group(1))
+            return result
+    except Exception as e:
+        result["error"] = str(e)[:200]
+        return result
+
+
+def compute_technicals(symbol: str, candles: List[Dict]) -> Dict[str, Any]:
+    """Compute RSI, MACD, MA, patterns from OHLC candle data."""
+    if not candles or len(candles) < 14:
+        return {"source": "computed", "success": False, "error": "Insufficient candle data"}
+
+    closes = [float(c.get("c", c.get("close", 0))) for c in candles]
+    highs = [float(c.get("h", c.get("high", 0))) for c in candles]
+    lows = [float(c.get("l", c.get("low", 0))) for c in candles]
+    opens = [float(c.get("o", c.get("open", 0))) for c in candles]
+
+    # RSI (14)
+    gains = []
+    losses = []
+    for i in range(1, len(closes)):
+        diff = closes[i] - closes[i - 1]
+        gains.append(max(diff, 0))
+        losses.append(max(-diff, 0))
+    avg_gain = sum(gains[-14:]) / 14 if len(gains) >= 14 else sum(gains) / max(len(gains), 1)
+    avg_loss = sum(losses[-14:]) / 14 if len(losses) >= 14 else sum(losses) / max(len(losses), 1)
+    rs = avg_gain / avg_loss if avg_loss > 0 else 100
+    rsi = 100 - (100 / (1 + rs))
+
+    # MACD (12, 26, 9)
+    def ema(data, period):
+        if len(data) < period:
+            return [sum(data) / len(data)] * len(data)
+        result = [sum(data[:period]) / period]
+        multiplier = 2 / (period + 1)
+        for i in range(period, len(data)):
+            result.append((data[i] - result[-1]) * multiplier + result[-1])
+        return [result[0]] * (period - 1) + result
+
+    ema12 = ema(closes, 12)
+    ema26 = ema(closes, 26)
+    macd_line = [e12 - e26 for e12, e26 in zip(ema12, ema26)]
+    signal_line = ema(macd_line, 9)
+    macd_hist = macd_line[-1] - signal_line[-1] if macd_line and signal_line else 0
+
+    # Moving Averages
+    ma50 = sum(closes[-50:]) / min(50, len(closes)) if len(closes) >= 5 else closes[-1]
+    ma200 = sum(closes[-min(200, len(closes)):]) / min(200, len(closes)) if len(closes) >= 5 else closes[-1]
+    current = closes[-1]
+
+    # Support/Resistance (simple: recent swing highs/lows)
+    pivot = (max(highs[-20:]) + min(lows[-20:]) + current) / 3 if len(highs) >= 5 else current
+    s1 = 2 * pivot - max(highs[-20:]) if len(highs) >= 5 else current * 0.95
+    r1 = 2 * pivot - min(lows[-20:]) if len(lows) >= 5 else current * 1.05
+
+    # Candlestick patterns (last candle)
+    last = candles[-1] if candles else {}
+    o, h, l, c = (float(last.get(k, closes[-1])) for k in ["o", "h", "l", "c"])
+    body = abs(c - o)
+    upper_wick = h - max(o, c)
+    lower_wick = min(o, c) - l
+    range_val = max(h - l, 0.01)
+    patterns = []
+    if body < range_val * 0.1 and upper_wick > range_val * 0.3 and lower_wick > range_val * 0.3:
+        patterns.append({"name": "Doji — Indecision", "type": "neutral"})
+    if lower_wick > range_val * 0.6 and body < range_val * 0.3 and c > o:
+        patterns.append({"name": "Hammer — Bullish Reversal", "type": "bullish"})
+    if upper_wick > range_val * 0.6 and body < range_val * 0.3 and c < o:
+        patterns.append({"name": "Shooting Star — Bearish", "type": "bearish"})
+    if body > range_val * 0.7 and upper_wick < range_val * 0.1 and lower_wick < range_val * 0.1:
+        patterns.append({"name": "Marubozu — Strong move", "type": "bullish" if c > o else "bearish"})
+
+    # Recommendation
+    buy_signals = 0
+    sell_signals = 0
+    if rsi > 50 and rsi < 70: buy_signals += 1
+    elif rsi > 70: sell_signals += 1
+    if current > ma50: buy_signals += 1
+    else: sell_signals += 1
+    if macd_hist > 0: buy_signals += 1
+    else: sell_signals += 1
+
+    return {
+        "source": "computed",
+        "success": True,
+        "rsi": round(rsi, 1),
+        "rsi_signal": "Overbought" if rsi > 70 else "Oversold" if rsi < 30 else "Bullish" if rsi > 55 else "Bearish",
+        "macd": round(macd_hist, 4),
+        "macd_signal": "Bullish Crossover" if macd_hist > 0 else "Bearish",
+        "ma50": round(ma50, 2),
+        "ma200": round(ma200, 2),
+        "above_ma50": current > ma50,
+        "above_ma200": current > ma200,
+        "pivot": round(pivot, 2),
+        "s1": round(s1, 2),
+        "r1": round(r1, 2),
+        "patterns": patterns,
+        "recommendation": "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "HOLD",
+        "buy_signals": buy_signals,
+        "sell_signals": sell_signals,
+    }
+
+
+async def fetch_news_sentiment(symbol: str) -> Dict[str, Any]:
+    """Fetch news headlines and compute simple sentiment from keyword analysis."""
+    try:
+        clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+        # Try multiple free news sources
+        sources = [
+            f"https://news.google.com/rss/search?q={clean_sym}+stock+NSE&hl=en-IN&gl=IN&ceid=IN:en",
+            f"https://news.google.com/rss/search?q={clean_sym}+share+price&hl=en-IN&gl=IN&ceid=IN:en",
+        ]
+        headlines = []
+        async with httpx.AsyncClient(timeout=12.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            for url in sources:
+                try:
+                    r = await client.get(url)
+                    if r.status_code == 200:
+                        found = re.findall(r'<title>(.*?)</title>', r.text)
+                        headlines += [h.strip() for h in found[1:] if len(h.strip()) > 15 and clean_sym.upper() in h.upper()]
+                except Exception:
+                    continue
+                if len(headlines) >= 5:
+                    break
+
+        if not headlines:
+            return {"source": "news_feed", "success": False, "error": "No headlines found", "sentiment": {"bull": 50, "neutral": 30, "bear": 20}, "headlines": []}
+
+        # Simple keyword-based sentiment
+        bullish_words = ["rise", "gain", "jump", "surge", "bullish", "upgrade", "buy", "outperform", "positive", "growth", "profit", "strong", "rally", "record", "boost", "higher", "beat", "target"]
+        bearish_words = ["fall", "drop", "decline", "bearish", "downgrade", "sell", "underperform", "negative", "loss", "weak", "crash", "lower", "miss", "risk", "concern", "warn", "cut", "slump"]
+
+        bull = 0
+        bear = 0
+        neutral = 0
+        for h in headlines[:20]:
+            h_lower = h.lower()
+            b = sum(1 for w in bullish_words if w in h_lower)
+            be = sum(1 for w in bearish_words if w in h_lower)
+            if b > be:
+                bull += 1
+            elif be > b:
+                bear += 1
+            else:
+                neutral += 1
+
+        total = max(bull + bear + neutral, 1)
+        return {
+            "source": "news_feed",
+            "success": True,
+            "headlines": headlines[:10],
+            "sentiment": {
+                "bull": round(bull / total * 100),
+                "neutral": round(neutral / total * 100),
+                "bear": round(bear / total * 100),
+            },
+            "headline_count": len(headlines),
+        }
+    except Exception as e:
+        return {"source": "news_feed", "success": False, "error": str(e)[:200], "sentiment": {"bull": 50, "neutral": 30, "bear": 20}}
+
+
+# Combined enrichment endpoint — runs all three analysis types without Hermes prompts
+@app.get("/api/enrich/{symbol}")
+async def enrich_symbol(symbol: str):
+    """Run screener.in scraper, technical analysis, and news sentiment for a symbol."""
+    sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+
+    # 1. Fundamental data from screener.in
+    funda = await scrape_screener(sym)
+
+    # 2. Technical analysis from Yahoo candles
+    tf = "1d"
+    candles_data = await yahoo_candles(sym, tf)
+    tech = compute_technicals(sym, candles_data or [])
+
+    # 3. News sentiment
+    sentiment = await fetch_news_sentiment(sym)
+
+    # Merge into enriched payload
+    result = {
+        "symbol": sym,
+        "enriched_at": datetime.now().isoformat(),
+        "fundamental": funda,
+        "technical": tech,
+        "sentiment": sentiment,
+        # Summary fields for the UI
+        "name": funda.get("name", sym),
+        "pe": funda.get("pe"),
+        "eps": funda.get("eps"),
+        "mcap": funda.get("mcap"),
+        "high52": funda.get("high52"),
+        "low52": funda.get("low52"),
+        "sector": funda.get("sector", ""),
+        "entry": tech.get("s1"),
+        "stop_loss": round(float(tech.get("s1", 0) or 0) * 0.95, 2) if tech.get("s1") else None,
+        "target": tech.get("r1"),
+        "recommendation": tech.get("recommendation", "HOLD"),
+    }
+    return result
 
 class EnrichmentPayload(BaseModel):
     data: Dict[str, Any]
