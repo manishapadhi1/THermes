@@ -408,7 +408,10 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 // ═══════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════
-const S={watchlist:[],portfolio:{cash:124500,holdings:[]},indices:[],marketStatus:{live:false,source:'fallback'},models:{groups:[],default_model:'',active_provider:''},settings:{},selectedStock:null,sidebarTab:'watchlist',detailTab:'chart',activeGoal:null,chartTf:'1d',watchEdit:false};
+const S={watchlist:[],portfolio:{cash:124500,holdings:[]},indices:[],marketStatus:{live:false,source:'fallback'},models:{groups:[],default_model:'',active_provider:''},settings:{},selectedStock:null,sidebarTab:'watchlist',detailTab:'chart',activeGoal:null,chartTf:'1d',watchEdit:false,enriched:JSON.parse(localStorage.getItem('thermes.enriched')||'{}')};
+
+function saveEnriched(){localStorage.setItem('thermes.enriched',JSON.stringify(S.enriched||{}));}
+function mergeEnriched(rows){return (rows||[]).map(r=>S.enriched?.[r.symbol]?{...r,...S.enriched[r.symbol]}:r);}
 
 // ═══════════════════════════════════════════════
 // API
@@ -427,7 +430,7 @@ async function init(){
       api('/market/watchlist'),api('/market/indices'),api('/trade/portfolio'),api('/market/status'),
       api('/models'),api('/settings')
     ]);
-    S.watchlist=wl;S.indices=idx;S.portfolio=pf;
+    S.watchlist=mergeEnriched(wl);S.indices=idx;S.portfolio=pf;
     S.marketStatus=status;
     S.models=models;S.settings=settings;
     const provCount=models.groups?.length||0;
@@ -538,7 +541,7 @@ function renderMarketBar(){
 async function refreshMarketData(){
   try{
     const [wl,status,pf]=await Promise.all([api('/market/watchlist'),api('/market/status'),api('/trade/portfolio')]);
-    S.watchlist=wl;S.marketStatus=status;S.portfolio={...S.portfolio,...pf};renderWatchlist();renderPortfolio();renderMarketBar();
+    S.watchlist=mergeEnriched(wl);S.marketStatus=status;S.portfolio={...S.portfolio,...pf};renderWatchlist();renderPortfolio();renderMarketBar();
     if(S.selectedStock){const updated=S.watchlist.find(x=>x.symbol===S.selectedStock);if(updated&&S.detailTab==='chart') { renderDetail(S.selectedStock); }}
   }catch(e){console.warn('Market refresh failed',e);}
 }
@@ -563,6 +566,7 @@ async function selectPortfolioStock(sym){
       const q=await api(`/market/quote/${encodeURIComponent(sym)}`);
       s={...s,...q,ltp:Number(q.ltp||s.ltp),pc:Number(q.pc||s.pc),sector:q.sector||'Portfolio'};
     }catch(e){console.warn('Quote enrichment failed',e);}
+    s=S.enriched?.[sym]?{...s,...S.enriched[sym]}:s;
     S.watchlist=[...S.watchlist,s];
   }
   selectStock(sym);
@@ -851,7 +855,9 @@ function applyResearch(symbol,text){
   const maybe=(v,old)=>v===null||v===undefined||v===''?old:v;
   s.name=maybe(data.name,s.name); s.ltp=Number(maybe(data.ltp,s.ltp)); s.pe=Number(maybe(data.pe,s.pe)); s.eps=Number(maybe(data.eps,s.eps)); s.mcap=Number(maybe(data.mcap,s.mcap)); s.high52=Number(maybe(data.high52,s.high52)); s.low52=Number(maybe(data.low52,s.low52)); s.sector=maybe(data.sector,s.sector);
   if(data.sentiment)s.sentiment={bull:Number(data.sentiment.bull||0),neutral:Number(data.sentiment.neutral||0),bear:Number(data.sentiment.bear||0)};
-  s.researchVerdict=data.recommendation||data.verdict; s.researchEntry=data.entry; s.researchStop=data.stop_loss||data.stop; s.researchTarget=data.target; s.fundamentals_available=!!(s.pe||s.eps||s.mcap);
+  s.researchVerdict=data.recommendation||data.verdict; s.researchEntry=data.entry; s.researchStop=data.stop_loss||data.stop; s.researchTarget=data.target; s.researchNotes=data.notes||''; s.fundamentals_available=!!(s.pe||s.eps||s.mcap);
+  S.enriched[symbol]={...(S.enriched[symbol]||{}),name:s.name,pe:s.pe,eps:s.eps,mcap:s.mcap,high52:s.high52,low52:s.low52,sector:s.sector,sentiment:s.sentiment,researchVerdict:s.researchVerdict,researchEntry:s.researchEntry,researchStop:s.researchStop,researchTarget:s.researchTarget,researchNotes:s.researchNotes,fundamentals_available:s.fundamentals_available};
+  saveEnriched();
   renderWatchlist(); renderPortfolio(); if(S.selectedStock===symbol)renderDetail(symbol); toast(`${symbol} enriched from Hermes research`,'ok');
 }
 
@@ -1062,7 +1068,7 @@ function settingsBrokersHtml(d){
     <div class="provider-card"><div class="p-hdr"><span class="p-name">Kite by Zerodha</span><span class="sig ${z.connected?'buy-sig':'neu-sig'}">${z.connected?'CONNECTED':'CONNECT'}</span></div><label>API Key</label><input id="zerodhaKey" type="password" placeholder="${z.api_key||'Zerodha API Key'}"><label>API Secret</label><input id="zerodhaSecret" type="password" placeholder="${z.api_secret||'Zerodha API Secret'}"><label>User ID</label><input id="zerodhaUser" placeholder="${z.user_id||'e.g. XK8892'}"><button class="btn-sm success" style="margin-top:8px" onclick="saveBrokerConfig('zerodha')">Save</button><button class="btn-sm primary" style="margin-top:8px" onclick="testBroker('zerodha')">${z.connected?'Refresh/Test':'Login / Test'}</button><div style="font-size:10px;color:var(--tds-text-subtle);margin-top:8px">${z.connected?'Zerodha access token is stored. Holdings/orders can use Kite; quotes/charts can still use free Yahoo/NSE.':'Kite requires login after saving API key/secret. Market data can still use free Yahoo/NSE; Kite is for holdings, orders, positions and authenticated watchlists.'}</div></div>
     <div class="provider-card"><div class="p-hdr"><span class="p-name">Angel One / Angel Broking</span><span class="sig ${a.connected?'buy-sig':'neu-sig'}">${a.connected?'CONNECTED':'CONNECT'}</span></div><label>API Key</label><input id="angelKey" type="password" placeholder="${a.api_key||'Angel API Key'}"><label>Client ID</label><input id="angelClient" placeholder="${a.client_id||'Client ID'}"><label>Password / Token</label><input id="angelPassword" type="password" placeholder="${a.password||'Password or token'}"><button class="btn-sm success" style="margin-top:8px" onclick="saveBrokerConfig('angel_broking')">Save</button><button class="btn-sm primary" style="margin-top:8px" onclick="testBroker('angel_broking')">Test Connection</button></div>`;
 }
-async function setMarketProvider(provider){await api('/market/provider',{method:'PUT',body:JSON.stringify({provider})});toast(`Market data provider: ${provider}`,'ok');const[wl,status]=await Promise.all([api('/market/watchlist'),api('/market/status')]);S.watchlist=wl;S.marketStatus=status;renderWatchlist();renderMarketBar();if(S.selectedStock)renderDetail(S.selectedStock);renderSettings('marketdata');}
+async function setMarketProvider(provider){await api('/market/provider',{method:'PUT',body:JSON.stringify({provider})});toast(`Market data provider: ${provider}`,'ok');const[wl,status]=await Promise.all([api('/market/watchlist'),api('/market/status')]);S.watchlist=mergeEnriched(wl);S.marketStatus=status;renderWatchlist();renderMarketBar();if(S.selectedStock)renderDetail(S.selectedStock);renderSettings('marketdata');}
 function settingsMemoryHtml(d){
   const sections=[['My Notes','memory'],['User Profile','user'],['Agent Soul','soul'],['Project Context','project_context']];
   return sections.map(([label,key])=>`<div class="card"><h4>${esc(label)}</h4><textarea class="c-input" style="width:100%;min-height:120px" id="mem_${key}">${esc(d[key]||'')}</textarea><button class="btn-sm primary" style="margin-top:8px" onclick="saveMemory('${key}')">Save</button></div>`).join('');
@@ -1121,7 +1127,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.addEventListener('click',(e)=>{const pop=document.getElementById('dropdownPop');if(pop&&!pop.classList.contains('hidden')&&!pop.contains(e.target)&&!e.target.closest('.composer-pill')&&!e.target.closest('.composer-icon'))closeDropdown();});
   document.addEventListener('keydown',(e)=>{if(e.key==='Escape'){closeDropdown();closeSettings();}});
   window.addEventListener('resize',()=>{if(window.innerWidth>768){document.getElementById('sidebar').classList.remove('open');document.getElementById('detail').classList.remove('open');}});
-  setInterval(()=>{ if(!document.hidden) refreshMarketData(); }, 60000);
+  setInterval(()=>{ if(!document.hidden) refreshMarketData(); }, 20000);
 });
 </script>
 </body>
