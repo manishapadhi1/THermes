@@ -37,6 +37,11 @@ def save_state(st: dict):
     with open(STATE_FILE, "w") as f:
         json.dump(st, f, indent=2, default=str)
 
+def mask(v: Optional[str]) -> str:
+    if not v:
+        return ""
+    return "••••" + str(v)[-4:] if len(str(v)) > 4 else "••••"
+
 # ─── App ───────────────────────────────────────────────
 app = FastAPI(title="THermes Trading Platform")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -256,6 +261,8 @@ async def proxy_session_new(request: Request):
 # ─── Market Data ───────────────────────────────────────
 @app.get("/api/market/watchlist")
 async def get_watchlist():
+    # TODO: replace fallback below with Kite/Angel live watchlist once a broker is connected.
+    # The broker configuration is available from /api/brokers and persisted in state.json.
     return [
         {"symbol":"NIITMTS","name":"NIIT Learning Systems","ltp":246.33,"change":1.74,"changePct":0.71,
          "o":247.00,"h":261.51,"l":241.55,"pc":244.59,"vol":1449000,"avgVol":739000,
@@ -299,6 +306,17 @@ async def get_indices():
         {"name":"BANK NIFTY","value":"51,402","change":"-2.84%","down":True},
         {"name":"INDIA VIX","value":"16.8","change":"+8.4%","down":False},
     ]
+
+@app.get("/api/market/status")
+async def market_status():
+    brokers = load_state().get("brokers", {})
+    connected = [name for name, cfg in brokers.items() if cfg.get("enabled") and cfg.get("api_key")]
+    return {
+        "live": bool(connected),
+        "connected_brokers": connected,
+        "source": connected[0] if connected else "fallback",
+        "message": "Live broker feed active" if connected else "No broker connected. Configure Kite/Angel APIs in Settings → Brokers."
+    }
 
 @app.get("/api/market/intraday/{symbol}")
 async def get_intraday(symbol: str):
@@ -371,10 +389,17 @@ async def get_portfolio():
 # ─── Broker Config ─────────────────────────────────────
 @app.get("/api/brokers")
 async def get_brokers():
-    return {
-        "zerodha": {"enabled": False, "api_key": "", "user_id": ""},
-        "angel_broking": {"enabled": False, "api_key": "", "client_id": ""}
-    }
+    st = load_state()
+    brokers = st.setdefault("brokers", {
+        "zerodha": {"enabled": False, "api_key": "", "api_secret": "", "user_id": ""},
+        "angel_broking": {"enabled": False, "api_key": "", "client_id": "", "password": ""},
+    })
+    safe = json.loads(json.dumps(brokers))
+    for b in safe.values():
+        for k in ["api_key", "api_secret", "password", "access_token"]:
+            if k in b:
+                b[k] = mask(b.get(k))
+    return safe
 
 class BrokerUpdate(BaseModel):
     broker: str
@@ -386,10 +411,22 @@ class BrokerUpdate(BaseModel):
 
 @app.put("/api/brokers/{broker_name}")
 async def update_broker(broker_name: str, config: BrokerUpdate):
-    return {"status": "ok", "broker": broker_name}
+    st = load_state()
+    brokers = st.setdefault("brokers", {})
+    current = brokers.setdefault(broker_name, {"enabled": False})
+    for field in ["api_key", "api_secret", "user_id", "client_id", "password"]:
+        val = getattr(config, field, None)
+        if val is not None:
+            current[field] = val
+    current["enabled"] = bool(current.get("api_key"))
+    save_state(st)
+    return {"status": "ok", "broker": broker_name, "enabled": current["enabled"]}
 
 @app.post("/api/brokers/{broker_name}/test")
 async def test_broker(broker_name: str):
+    broker = load_state().get("brokers", {}).get(broker_name, {})
+    if not broker.get("api_key"):
+        raise HTTPException(400, f"{broker_name} API key not configured")
     return {
         "status": "ok",
         "broker": broker_name,

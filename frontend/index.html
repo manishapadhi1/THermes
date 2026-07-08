@@ -203,19 +203,19 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 /* SETTINGS MODAL */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:100;display:flex;align-items:center;justify-content:center;animation:fadeIn 0.2s var(--motion);}
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
-.modal{background:var(--tds-surface-01);border:1px solid var(--tds-border);border-radius:8px;width:90vw;max-width:720px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;}
-.modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(58,81,124,0.2);}
-.modal-hdr h2{font-family:var(--font-display);font-size:16px;font-weight:700;}
+.modal{background:var(--tds-surface-01);border:1px solid var(--tds-border);border-radius:8px;width:88vw;max-width:860px;max-height:84vh;display:flex;flex-direction:column;overflow:hidden;font-size:12px;}
+.modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(58,81,124,0.2);}
+.modal-hdr h2{font-family:var(--font-display);font-size:15px;font-weight:700;}
 .modal-tabs{display:flex;gap:0;padding:0 16px;border-bottom:1px solid rgba(58,81,124,0.2);overflow-x:auto;}
-.modal-tab{padding:8px 14px;font-family:var(--font-compact);font-size:11px;font-weight:600;color:var(--tds-text-subtle);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;}
+.modal-tab{padding:7px 12px;font-family:var(--font-compact);font-size:10px;font-weight:700;color:var(--tds-text-subtle);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;}
 .modal-tab.active{color:var(--tds-blue-light);border-bottom-color:var(--tds-blue);}
-.modal-body{flex:1;overflow-y:auto;padding:16px;}
+.modal-body{flex:1;overflow-y:auto;padding:12px 14px;}
 .modal-body label{display:block;font-family:var(--font-compact);font-size:10px;font-weight:600;text-transform:uppercase;color:var(--tds-text-subtle);margin-bottom:4px;}
 .modal-body input,.modal-body select{width:100%;padding:6px 8px;background:var(--tds-surface-03);border:1px solid var(--tds-border);border-radius:var(--radius-field);color:var(--tds-text-strong);font-family:var(--font-compact);font-size:12px;margin-bottom:10px;outline:none;}
 .modal-body input:focus{border-color:var(--tds-blue);}
-.modal-body .provider-card{background:var(--tds-surface-02);border:1px solid rgba(58,81,124,0.25);border-radius:var(--radius-card);padding:12px;margin-bottom:10px;}
+.modal-body .provider-card{background:var(--tds-surface-02);border:1px solid rgba(58,81,124,0.25);border-radius:var(--radius-card);padding:9px 10px;margin-bottom:8px;}
 .provider-card .p-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
-.provider-card .p-name{font-family:var(--font-display);font-size:14px;font-weight:700;}
+.provider-card .p-name{font-family:var(--font-display);font-size:12px;font-weight:700;}
 .provider-card .toggle{position:relative;width:36px;height:20px;cursor:pointer;}
 .toggle input{display:none;}
 .toggle .slider{position:absolute;inset:0;background:var(--tds-surface-03);border-radius:10px;transition:0.2s;}
@@ -238,7 +238,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 @keyframes slideIn{from{opacity:0;transform:translateX(40px);}to{opacity:1;transform:translateX(0);}}
 
 /* HERMES-LIKE SIDE PANEL */
-.side-panel{position:fixed;top:48px;right:0;bottom:0;width:420px;max-width:92vw;background:var(--tds-surface-01);border-left:1px solid var(--tds-border);z-index:90;box-shadow:-8px 0 28px rgba(0,0,0,.35);display:flex;flex-direction:column;}
+.side-panel{position:fixed;top:48px;right:0;bottom:0;width:420px;max-width:92vw;background:var(--tds-surface-01);border-left:1px solid var(--tds-border);z-index:90;box-shadow:-8px 0 28px rgba(0,0,0,.35);display:flex;flex-direction:column;font-size:12px;}
 .side-panel.hidden{display:none;}
 .panel-head{height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--tds-border);}
 .panel-head h3{font-family:var(--font-display);font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;color:var(--tds-text-subtle);}
@@ -246,12 +246,12 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 .panel-search{width:100%;padding:10px 12px;border:1px solid var(--tds-border);border-radius:10px;background:var(--tds-bg);color:var(--tds-text-strong);font-size:14px;margin-bottom:14px;outline:none;}
 .panel-search:focus{border-color:var(--tds-blue);box-shadow:0 0 0 2px rgba(42,110,207,.16);}
 .panel-section-title{font-family:var(--font-display);font-size:12px;font-weight:800;letter-spacing:.06em;color:var(--tds-text-subtle);text-transform:uppercase;margin:18px 0 8px;}
-.panel-list-item{display:flex;align-items:center;gap:10px;padding:8px 4px;border-radius:6px;color:var(--tds-text-subtle);font-size:13px;cursor:pointer;}
+.panel-list-item{display:flex;align-items:center;gap:9px;padding:6px 4px;border-radius:6px;color:var(--tds-text-subtle);font-size:11px;cursor:pointer;}
 .panel-list-item:hover{background:var(--tds-surface-02);color:var(--tds-text-strong);}
-.panel-list-item strong{color:var(--tds-text-subtle);font-size:14px;min-width:110px;}
-.panel-toggle{width:30px;height:16px;border-radius:999px;border:1px solid var(--tds-blue);background:rgba(42,110,207,.28);position:relative;flex:none;}
+.panel-list-item strong{color:var(--tds-text-subtle);font-size:12px;min-width:96px;}
+.panel-toggle{width:26px;height:14px;border-radius:999px;border:1px solid var(--tds-blue);background:rgba(42,110,207,.28);position:relative;flex:none;}
 .panel-toggle.off{border-color:rgba(170,201,246,.24);background:rgba(58,81,124,.28);}
-.panel-toggle::after{content:'';position:absolute;width:12px;height:12px;border-radius:50%;right:2px;top:1px;background:#AAC9F6;}
+.panel-toggle::after{content:'';position:absolute;width:10px;height:10px;border-radius:50%;right:2px;top:1px;background:#AAC9F6;}
 .panel-toggle.off::after{right:auto;left:2px;background:#61718a;}
 .panel-log{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;color:var(--tds-text-subtle);background:var(--tds-bg);border:1px solid rgba(58,81,124,.35);border-radius:6px;padding:10px;}
 
@@ -327,7 +327,8 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
     <div class="sep"></div>
     <select id="modelSelect" onchange="changeModel(this.value)" style="display:none"><option value="">Loading…</option></select>
     <div class="acct">A/C <strong>XK8892</strong></div>
-    <span class="acct" id="hermesStatus" style="font-size:10px">Connecting…</span>
+    <button class="settings-btn" id="settingsBtn" onclick="openSettings('brokers')" title="Settings">⚙</button>
+    <span class="acct" id="hermesStatus" style="display:none"></span>
   </div>
 
   <div style="display:flex;flex-direction:column;overflow:hidden;">
@@ -366,7 +367,6 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
             <button class="composer-pill" onclick="openDropdown('models', this)" title="Model">⚙ <span id="composerModelLabel">gpt-5.5</span>⌄</button>
             <button class="composer-pill compact" onclick="openDropdown('reasoning', this)" title="Reasoning">◐ <span id="composerReasoningLabel">Medium</span></button>
             <div class="composer-spacer"></div>
-            <button class="composer-icon" onclick="openSettings('skills')" title="Settings / Skills">⚙</button>
             <div class="token-meter" onclick="openSettings('tasklist')" title="Context meter / task list">6</div>
             <button class="send-arrow" onclick="sendMsg()" title="Send">↑</button>
           </div>
@@ -400,7 +400,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 // ═══════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════
-const S={watchlist:[],portfolio:{cash:124500,holdings:[]},indices:[],models:{groups:[],default_model:'',active_provider:''},settings:{},selectedStock:null,sidebarTab:'watchlist',detailTab:'chart',activeGoal:null};
+const S={watchlist:[],portfolio:{cash:124500,holdings:[]},indices:[],marketStatus:{live:false,source:'fallback'},models:{groups:[],default_model:'',active_provider:''},settings:{},selectedStock:null,sidebarTab:'watchlist',detailTab:'chart',activeGoal:null};
 
 // ═══════════════════════════════════════════════
 // API
@@ -415,11 +415,12 @@ async function init(){
   const statusEl = document.getElementById('hermesStatus');
   statusEl.textContent = 'Connecting…';
   try{
-    const[wl,idx,pf,models,settings]=await Promise.all([
-      api('/market/watchlist'),api('/market/indices'),api('/trade/portfolio'),
+    const[wl,idx,pf,status,models,settings]=await Promise.all([
+      api('/market/watchlist'),api('/market/indices'),api('/trade/portfolio'),api('/market/status'),
       api('/models'),api('/settings')
     ]);
     S.watchlist=wl;S.indices=idx;S.portfolio={cash:pf.cash,holdings:pf.holdings};
+    S.marketStatus=status;
     S.models=models;S.settings=settings;
     const provCount=models.groups?.length||0;
     statusEl.innerHTML=`<span class="dot"></span>Hermes (${provCount} providers)`;
@@ -503,7 +504,8 @@ function renderIndices(){
 }
 
 function renderMarketBar(){
-  document.getElementById('marketBar').innerHTML=S.indices.map(i=>`<span><strong>${i.name}</strong> ${i.value} <span class="${i.down?'change-down':'change-up'}">${i.change}</span></span>`).join(' &nbsp;|&nbsp; ');
+  const feed=`<span><strong>${S.marketStatus.live?'LIVE':'FALLBACK'}</strong> <span class="${S.marketStatus.live?'change-up':'change-down'}">${esc(S.marketStatus.source||'no broker')}</span></span>`;
+  document.getElementById('marketBar').innerHTML=feed+' &nbsp;|&nbsp; '+S.indices.map(i=>`<span><strong>${i.name}</strong> ${i.value} <span class="${i.down?'change-down':'change-up'}">${i.change}</span></span>`).join(' &nbsp;|&nbsp; ');
 }
 
 function switchSB(tab){S.sidebarTab=tab;document.querySelectorAll('.sidebar-tab').forEach(t=>t.classList.toggle('active',t.textContent.toLowerCase().includes(tab)));document.getElementById('wlContainer').style.display=tab==='watchlist'?'block':'none';document.getElementById('pfContainer').style.display=tab==='portfolio'?'block':'none';}
@@ -954,7 +956,20 @@ function filterSettingsItems(q){q=(q||'').toLowerCase();document.querySelectorAl
 
 // Settings actions
 async function saveProviderKey(id,key){try{await api('/providers',{method:'POST',body:JSON.stringify({provider:id,api_key:key})});toast(`Key saved for ${id}`,'ok');}catch(e){toast('Save failed','err');}}
-async function saveBrokerConfig(broker){toast(`${broker} credentials saved locally; backend client wiring next`,'ok');}
+async function saveBrokerConfig(broker){
+  const body={broker};
+  if(broker==='zerodha'){
+    body.api_key=document.getElementById('zerodhaKey')?.value||'';
+    body.api_secret=document.getElementById('zerodhaSecret')?.value||'';
+    body.user_id=document.getElementById('zerodhaUser')?.value||'';
+  }else{
+    body.api_key=document.getElementById('angelKey')?.value||'';
+    body.client_id=document.getElementById('angelClient')?.value||'';
+    body.password=document.getElementById('angelPassword')?.value||'';
+  }
+  await api(`/brokers/${broker}`,{method:'PUT',body:JSON.stringify(body)});
+  toast(`${broker} API settings saved`,'ok');
+}
 async function testBroker(broker){try{const r=await api(`/brokers/${broker}/test`,{method:'POST'});toast(r.message,'ok');}catch(e){toast('Connection failed','err');}}
 async function activateAgent(type){await api('/agents/activate',{method:'PUT',body:JSON.stringify({agent_type:type})});toast(`Agent: ${type}`,'ok');}
 async function toggleAutonomous(enabled){await api('/agents/autonomous',{method:'PUT',body:JSON.stringify({enabled})});toast(`Autonomous ${enabled?'ON':'OFF'}`,'ok');}
@@ -979,6 +994,8 @@ document.addEventListener('DOMContentLoaded',()=>{
   inp.addEventListener('input',()=>{inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,160)+'px';});
   const settingsBtn=document.getElementById('settingsBtn');
   if(settingsBtn)settingsBtn.addEventListener('click',(e)=>{e.preventDefault();e.stopPropagation();openSettings();});
+  document.addEventListener('click',(e)=>{const pop=document.getElementById('dropdownPop');if(pop&&!pop.classList.contains('hidden')&&!pop.contains(e.target)&&!e.target.closest('.composer-pill')&&!e.target.closest('.composer-icon'))closeDropdown();});
+  document.addEventListener('keydown',(e)=>{if(e.key==='Escape'){closeDropdown();closeSettings();}});
   window.addEventListener('resize',()=>{if(window.innerWidth>768){document.getElementById('sidebar').classList.remove('open');document.getElementById('detail').classList.remove('open');}});
 });
 </script>
