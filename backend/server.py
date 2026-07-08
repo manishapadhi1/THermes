@@ -94,6 +94,24 @@ async def yahoo_quote(symbol: str) -> Optional[Dict[str, Any]]:
     except Exception:
         return None
 
+async def yahoo_search(q: str) -> List[Dict[str, Any]]:
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            r = await client.get("https://query2.finance.yahoo.com/v1/finance/search", params={"q": q, "quotesCount": 10, "newsCount": 0})
+            r.raise_for_status()
+            rows = []
+            for x in r.json().get("quotes", []):
+                sym = x.get("symbol", "")
+                exch = x.get("exchange", "") or x.get("exchDisp", "")
+                if not sym:
+                    continue
+                # Prefer Indian exchanges but allow any symbol if user searches exact.
+                if (".NS" in sym or ".BO" in sym or exch in {"NSI", "BSE"} or q.upper() in sym.upper()):
+                    rows.append({"symbol": sym.replace(".NS", "").replace(".BO", ""), "yahoo_symbol": sym, "name": x.get("shortname") or x.get("longname") or sym, "exchange": exch or x.get("exchDisp", "")})
+            return rows[:10]
+    except Exception:
+        return []
+
 def timeframe_to_yahoo(tf: str) -> tuple[str, str]:
     return {
         "1m": ("1d", "1m"),
@@ -432,10 +450,58 @@ async def set_market_provider(update: MarketProviderUpdate):
     save_state(st)
     return {"status": "ok", "provider": update.provider}
 
+class WatchlistSymbol(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+
+class WatchlistOrder(BaseModel):
+    symbols: List[str]
+
+@app.get("/api/watchlist/symbols")
+async def get_watchlist_symbols():
+    st = load_state()
+    md = st.setdefault("market_data", {})
+    return {"symbols": md.get("symbols", DEFAULT_SYMBOLS), "names": md.get("names", {})}
+
+@app.get("/api/watchlist/search")
+async def search_watchlist(q: str):
+    if not q or len(q.strip()) < 1:
+        return []
+    return await yahoo_search(q.strip())
+
+@app.post("/api/watchlist/add")
+async def add_watchlist_symbol(item: WatchlistSymbol):
+    sym = item.symbol.upper().replace(".NS", "").replace(".BO", "").strip()
+    st = load_state(); md = st.setdefault("market_data", {})
+    syms = md.setdefault("symbols", list(DEFAULT_SYMBOLS))
+    if sym not in syms:
+        syms.append(sym)
+    if item.name:
+        md.setdefault("names", {})[sym] = item.name
+    save_state(st)
+    return {"status": "ok", "symbols": syms}
+
+@app.post("/api/watchlist/remove")
+async def remove_watchlist_symbol(item: WatchlistSymbol):
+    sym = item.symbol.upper().replace(".NS", "").replace(".BO", "").strip()
+    st = load_state(); md = st.setdefault("market_data", {})
+    md["symbols"] = [s for s in md.get("symbols", DEFAULT_SYMBOLS) if s != sym]
+    save_state(st)
+    return {"status": "ok", "symbols": md["symbols"]}
+
+@app.post("/api/watchlist/reorder")
+async def reorder_watchlist(order: WatchlistOrder):
+    st = load_state(); md = st.setdefault("market_data", {})
+    md["symbols"] = [s.upper().replace(".NS", "").replace(".BO", "") for s in order.symbols]
+    save_state(st)
+    return {"status": "ok", "symbols": md["symbols"]}
+
 @app.get("/api/market/watchlist")
 async def get_watchlist():
     provider = state_market_provider()
-    symbols = load_state().get("market_data", {}).get("symbols", DEFAULT_SYMBOLS)
+    md = load_state().get("market_data", {})
+    symbols = md.get("symbols", DEFAULT_SYMBOLS)
+    names = md.get("names", {})
     fallback = [
         {"symbol":"NIITMTS","name":"NIIT Learning Systems","ltp":246.33,"change":1.74,"changePct":0.71,
          "o":247.00,"h":261.51,"l":241.55,"pc":244.59,"vol":1449000,"avgVol":739000,
@@ -475,7 +541,7 @@ async def get_watchlist():
         rows = []
         for sym in symbols:
             q = await (yahoo_quote(sym) if provider == "yahoo" else nse_quote(sym))
-            base = meta.get(sym, {"symbol": sym, "name": sym, "pe": 0, "high52": 0, "low52": 0, "eps": 0, "mcap": 0, "sector": "", "sentiment": {"bull": 50, "neutral": 30, "bear": 20}})
+            base = meta.get(sym, {"symbol": sym, "name": names.get(sym, sym), "pe": 0, "high52": 0, "low52": 0, "eps": 0, "mcap": 0, "sector": "", "sentiment": {"bull": 50, "neutral": 30, "bear": 20}})
             if q:
                 rows.append({**base, **q, "name": base.get("name", sym)})
             elif base:
@@ -587,14 +653,17 @@ async def get_portfolio():
     if broker.get("api_key") and broker.get("access_token"):
         try:
             async with httpx.AsyncClient(timeout=12.0, headers={"X-Kite-Version": "3", "Authorization": f"token {broker['api_key']}:{broker['access_token']}"}) as client:
-                r = await client.get(f"{KITE_BASE}/portfolio/holdings")
-                r.raise_for_status()
+                r = await client.get(f"{KITE_BASE}/portfolio/holdings"); r.raise_for_status()
+                pos_r = await client.get(f"{KITE_BASE}/portfolio/positions"); pos_r.raise_for_status()
+                mar_r = await client.get(f"{KITE_BASE}/user/margins"); mar_r.raise_for_status()
                 holdings = []
                 for h in r.json().get("data", []):
                     holdings.append({"symbol": h.get("tradingsymbol"), "qty": h.get("quantity", 0), "avg": h.get("average_price", 0), "ltp": h.get("last_price", h.get("close_price", 0))})
-            return {"cash": None, "source": "zerodha", "holdings": holdings}
-        except Exception:
-            pass
+                positions = pos_r.json().get("data", {})
+                margins = mar_r.json().get("data", {})
+            return {"cash": None, "source": "zerodha", "connected": True, "holdings": holdings, "positions": positions, "margins": margins, "message": f"Fetched {len(holdings)} holdings from Kite."}
+        except Exception as e:
+            return {"cash": None, "source": "zerodha", "connected": True, "holdings": [], "positions": {}, "margins": {}, "error": str(e)[:240], "message": "Zerodha token exists but portfolio fetch failed."}
     return {
         "cash": 124500,
         "source": "fallback",

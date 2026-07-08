@@ -341,6 +341,10 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
             <div class="sidebar-tab active" onclick="switchSB('watchlist')">WATCHLIST</div>
             <div class="sidebar-tab" onclick="switchSB('portfolio')">PORTFOLIO</div>
           </div>
+          <div id="watchTools" style="margin-bottom:8px">
+            <div style="display:flex;gap:4px;margin-bottom:5px"><input id="symbolSearch" class="panel-search" style="margin:0;padding:6px 8px;font-size:11px" placeholder="Search/add symbol..." oninput="searchSymbols(this.value)"><button class="btn-sm" onclick="toggleWatchEdit()">Edit</button></div>
+            <div id="symbolResults" style="display:none;border:1px solid rgba(58,81,124,.25);border-radius:6px;max-height:150px;overflow:auto;background:var(--tds-surface-02)"></div>
+          </div>
           <div id="wlContainer"></div>
           <div id="pfContainer" style="display:none;"></div>
         </div>
@@ -400,7 +404,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 // ═══════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════
-const S={watchlist:[],portfolio:{cash:124500,holdings:[]},indices:[],marketStatus:{live:false,source:'fallback'},models:{groups:[],default_model:'',active_provider:''},settings:{},selectedStock:null,sidebarTab:'watchlist',detailTab:'chart',activeGoal:null,chartTf:'1d'};
+const S={watchlist:[],portfolio:{cash:124500,holdings:[]},indices:[],marketStatus:{live:false,source:'fallback'},models:{groups:[],default_model:'',active_provider:''},settings:{},selectedStock:null,sidebarTab:'watchlist',detailTab:'chart',activeGoal:null,chartTf:'1d',watchEdit:false};
 
 // ═══════════════════════════════════════════════
 // API
@@ -419,7 +423,7 @@ async function init(){
       api('/market/watchlist'),api('/market/indices'),api('/trade/portfolio'),api('/market/status'),
       api('/models'),api('/settings')
     ]);
-    S.watchlist=wl;S.indices=idx;S.portfolio={cash:pf.cash,holdings:pf.holdings};
+    S.watchlist=wl;S.indices=idx;S.portfolio=pf;
     S.marketStatus=status;
     S.models=models;S.settings=settings;
     const provCount=models.groups?.length||0;
@@ -486,18 +490,35 @@ async function changeModel(modelId){
 // RENDER SIDEBAR
 // ═══════════════════════════════════════════════
 function renderWatchlist(){
-  document.getElementById('wlContainer').innerHTML=S.watchlist.map(s=>{
+  const tools=document.getElementById('watchTools'); if(tools) tools.style.display=S.sidebarTab==='watchlist'?'block':'none';
+  document.getElementById('wlContainer').innerHTML=S.watchlist.map((s,i)=>{
     const cls=s.symbol===S.selectedStock?' sel':'';
     const cc=s.change>=0?'change-up':'change-down';
     const sg=s.change>=0?'+':'';
-    return `<div class="wl-item${cls}" onclick="selectStock('${s.symbol}')"><div><div class="sym">${s.symbol}</div><div class="name">${s.name}</div></div><div style="text-align:right"><div class="pr">₹${s.ltp.toFixed(s.ltp<100?2:0)}</div><div class="ch ${cc}">${sg}${s.changePct.toFixed(2)}%</div></div></div>`;
+    const edit=S.watchEdit?`<div style="display:flex;gap:2px;margin-left:6px"><button class="btn-sm" onclick="event.stopPropagation();moveWatch('${s.symbol}',-1)">↑</button><button class="btn-sm" onclick="event.stopPropagation();moveWatch('${s.symbol}',1)">↓</button><button class="btn-sm danger" onclick="event.stopPropagation();removeWatch('${s.symbol}')">×</button></div>`:'';
+    return `<div class="wl-item${cls}" onclick="selectStock('${s.symbol}')"><div><div class="sym">${s.symbol}</div><div class="name">${s.name||''}</div></div><div style="display:flex;align-items:center"><div style="text-align:right"><div class="pr">₹${Number(s.ltp||0).toFixed(s.ltp<100?2:0)}</div><div class="ch ${cc}">${sg}${Number(s.changePct||0).toFixed(2)}%</div></div>${edit}</div></div>`;
   }).join('');
 }
 
 function renderPortfolio(){
-  const h=S.portfolio.holdings.map(h=>{const s=S.watchlist.find(w=>w.symbol===h.symbol);const ltp=s?s.ltp:h.ltp;const pnl=((ltp-h.avg)*h.qty).toFixed(0);const pp=((ltp-h.avg)/h.avg*100).toFixed(1);const pc=pnl>=0?'change-up':'change-down';const sg=pnl>=0?'+':'';return `<div class="wl-item" onclick="selectStock('${h.symbol}')"><div><div class="sym">${h.symbol} <span style="font-size:10px;color:var(--tds-text-subtle)">${h.qty} sh</span></div><div class="name">Avg ₹${h.avg}</div></div><div style="text-align:right"><div class="pr">₹${ltp.toFixed(ltp<100?2:0)}</div><div class="ch ${pc}">${sg}₹${pnl} (${sg}${pp}%)</div></div></div>`;}).join('');
-  document.getElementById('pfContainer').innerHTML=`<div style="padding:4px 0;font-size:10px;color:var(--tds-text-subtle)">Cash: <strong style="color:var(--tds-text-strong)">₹${S.portfolio.cash.toLocaleString()}</strong></div>${h}`;
+  const holdings=S.portfolio.holdings||[];
+  const source=S.portfolio.source||'fallback';
+  const status=`<div style="padding:4px 0;font-size:10px;color:var(--tds-text-subtle)">Source: <strong style="color:${source==='zerodha'?'var(--tds-success)':'var(--tds-warning)'}">${source}</strong>${S.portfolio.message?`<br>${esc(S.portfolio.message)}`:''}${S.portfolio.error?`<br><span style="color:var(--tds-danger)">${esc(S.portfolio.error)}</span>`:''}${S.portfolio.cash?`<br>Cash: <strong style="color:var(--tds-text-strong)">₹${S.portfolio.cash.toLocaleString()}</strong>`:''}</div>`;
+  if(!holdings.length){document.getElementById('pfContainer').innerHTML=status+`<div style="padding:12px 4px;color:var(--tds-text-subtle);font-size:11px">No holdings returned from ${source}. If you only have intraday positions, check Kite positions; holdings can be empty.</div>`;return;}
+  const h=holdings.map(h=>{const s=S.watchlist.find(w=>w.symbol===h.symbol);const ltp=s?s.ltp:h.ltp;const pnl=((ltp-h.avg)*h.qty).toFixed(0);const pp=h.avg?((ltp-h.avg)/h.avg*100).toFixed(1):'0.0';const pc=pnl>=0?'change-up':'change-down';const sg=pnl>=0?'+':'';return `<div class="wl-item" onclick="selectStock('${h.symbol}')"><div><div class="sym">${h.symbol} <span style="font-size:10px;color:var(--tds-text-subtle)">${h.qty} sh</span></div><div class="name">Avg ₹${h.avg}</div></div><div style="text-align:right"><div class="pr">₹${Number(ltp||0).toFixed(ltp<100?2:0)}</div><div class="ch ${pc}">${sg}₹${pnl} (${sg}${pp}%)</div></div></div>`;}).join('');
+  document.getElementById('pfContainer').innerHTML=status+h;
 }
+
+let searchTimer=null;
+function toggleWatchEdit(){S.watchEdit=!S.watchEdit;renderWatchlist();}
+function searchSymbols(q){
+  clearTimeout(searchTimer);const box=document.getElementById('symbolResults');
+  if(!q||q.length<1){box.style.display='none';box.innerHTML='';return;}
+  searchTimer=setTimeout(async()=>{try{const rows=await api(`/watchlist/search?q=${encodeURIComponent(q)}`);box.style.display='block';box.innerHTML=rows.length?rows.map(r=>`<div class="panel-list-item" onclick="addWatch('${esc(r.symbol)}','${esc(r.name)}')"><strong>${esc(r.symbol)}</strong><span>${esc(r.name)} · ${esc(r.exchange||'')}</span></div>`).join(''):'<div style="padding:8px;color:var(--tds-text-subtle);font-size:11px">No matches</div>'; }catch(e){box.style.display='block';box.innerHTML='<div style="padding:8px;color:var(--tds-danger);font-size:11px">Search failed</div>'; }},350);
+}
+async function addWatch(symbol,name){await api('/watchlist/add',{method:'POST',body:JSON.stringify({symbol,name})});document.getElementById('symbolResults').style.display='none';document.getElementById('symbolSearch').value='';await refreshMarketData();}
+async function removeWatch(symbol){await api('/watchlist/remove',{method:'POST',body:JSON.stringify({symbol})});await refreshMarketData();}
+async function moveWatch(symbol,dir){const syms=S.watchlist.map(x=>x.symbol);const i=syms.indexOf(symbol);const j=i+dir;if(i<0||j<0||j>=syms.length)return;[syms[i],syms[j]]=[syms[j],syms[i]];await api('/watchlist/reorder',{method:'POST',body:JSON.stringify({symbols:syms})});await refreshMarketData();}
 
 function renderIndices(){
   document.getElementById('idxContainer').innerHTML=S.indices.map(i=>`<div style="display:flex;justify-content:space-between;padding:3px 0;font-family:var(--font-compact);font-size:11px"><span style="color:var(--tds-text-subtle)">${i.name}</span><span style="color:var(--tds-text-strong)">${i.value} <span class="${i.down?'change-down':'change-up'}" style="font-size:10px">${i.change}</span></span></div>`).join('');
@@ -512,8 +533,8 @@ function renderMarketBar(){
 
 async function refreshMarketData(){
   try{
-    const [wl,status]=await Promise.all([api('/market/watchlist'),api('/market/status')]);
-    S.watchlist=wl;S.marketStatus=status;renderWatchlist();renderMarketBar();
+    const [wl,status,pf]=await Promise.all([api('/market/watchlist'),api('/market/status'),api('/trade/portfolio')]);
+    S.watchlist=wl;S.marketStatus=status;S.portfolio={...S.portfolio,...pf};renderWatchlist();renderPortfolio();renderMarketBar();
     if(S.selectedStock){const updated=S.watchlist.find(x=>x.symbol===S.selectedStock);if(updated&&S.detailTab==='chart') { renderDetail(S.selectedStock); }}
   }catch(e){console.warn('Market refresh failed',e);}
 }
