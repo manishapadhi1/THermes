@@ -79,15 +79,22 @@ async def yahoo_quote(symbol: str) -> Optional[Dict[str, Any]]:
             ltp = meta.get("regularMarketPrice") or closes[-1]
             return {
                 "symbol": symbol,
+                "name": meta.get("longName") or meta.get("shortName") or symbol,
                 "ltp": round(float(ltp), 2),
                 "change": round(float(ltp) - float(pc), 2),
                 "changePct": round(((float(ltp) - float(pc)) / float(pc) * 100), 2) if pc else 0,
                 "o": round(float(opens[0] if opens else closes[0]), 2),
-                "h": round(float(max(highs) if highs else max(closes)), 2),
-                "l": round(float(min(lows) if lows else min(closes)), 2),
+                "h": round(float(meta.get("regularMarketDayHigh") or (max(highs) if highs else max(closes))), 2),
+                "l": round(float(meta.get("regularMarketDayLow") or (min(lows) if lows else min(closes))), 2),
                 "pc": round(float(pc), 2),
                 "vol": int(sum(vols)) if vols else 0,
                 "avgVol": int(meta.get("averageDailyVolume10Day") or meta.get("averageDailyVolume3Month") or 0),
+                "high52": round(float(meta.get("fiftyTwoWeekHigh") or 0), 2),
+                "low52": round(float(meta.get("fiftyTwoWeekLow") or 0), 2),
+                "pe": None,
+                "eps": None,
+                "mcap": None,
+                "fundamentals_available": False,
                 "source": "yahoo",
                 "delay_note": "Free Yahoo Finance feed; may be delayed.",
             }
@@ -450,12 +457,27 @@ async def set_market_provider(update: MarketProviderUpdate):
     save_state(st)
     return {"status": "ok", "provider": update.provider}
 
+@app.get("/api/market/quote/{symbol}")
+async def get_market_quote(symbol: str):
+    provider = state_market_provider()
+    q = await (yahoo_quote(symbol) if provider == "yahoo" else nse_quote(symbol) if provider == "nse_public" else None)
+    if q:
+        return q
+    # Fallback to static if symbol exists there
+    for row in await get_watchlist():
+        if row.get("symbol") == symbol.upper():
+            return {**row, "source": "fallback"}
+    return {"symbol": symbol.upper(), "name": symbol.upper(), "ltp": 0, "change": 0, "changePct": 0, "o": 0, "h": 0, "l": 0, "pc": 0, "vol": 0, "avgVol": 0, "pe": None, "eps": None, "mcap": None, "high52": 0, "low52": 0, "sector": "", "sentiment": {"bull": 0, "neutral": 0, "bear": 0}, "fundamentals_available": False, "source": "unavailable"}
+
 class WatchlistSymbol(BaseModel):
     symbol: str
     name: Optional[str] = None
 
 class WatchlistOrder(BaseModel):
     symbols: List[str]
+
+class EnrichmentPayload(BaseModel):
+    data: Dict[str, Any]
 
 @app.get("/api/watchlist/symbols")
 async def get_watchlist_symbols():
@@ -495,6 +517,22 @@ async def reorder_watchlist(order: WatchlistOrder):
     md["symbols"] = [s.upper().replace(".NS", "").replace(".BO", "") for s in order.symbols]
     save_state(st)
     return {"status": "ok", "symbols": md["symbols"]}
+
+@app.get("/api/enrichment")
+async def get_all_enrichment():
+    return load_state().get("enrichment", {})
+
+@app.get("/api/enrichment/{symbol}")
+async def get_enrichment(symbol: str):
+    return load_state().get("enrichment", {}).get(symbol.upper(), {})
+
+@app.put("/api/enrichment/{symbol}")
+async def put_enrichment(symbol: str, payload: EnrichmentPayload):
+    st = load_state()
+    enrich = st.setdefault("enrichment", {})
+    enrich[symbol.upper()] = payload.data
+    save_state(st)
+    return {"status": "ok", "symbol": symbol.upper()}
 
 @app.get("/api/market/watchlist")
 async def get_watchlist():
@@ -603,6 +641,25 @@ async def get_intraday(symbol: str, tf: str = "1d"):
 
 @app.get("/api/market/orderbook/{symbol}")
 async def get_orderbook(symbol: str):
+    # Prefer Kite quote/depth when Zerodha is connected.
+    broker = load_state().get("brokers", {}).get("zerodha", {})
+    if broker.get("api_key") and broker.get("access_token"):
+        try:
+            inst = f"NSE:{symbol.upper()}"
+            async with httpx.AsyncClient(timeout=10.0, headers={"X-Kite-Version": "3", "Authorization": f"token {broker['api_key']}:{broker['access_token']}"}) as client:
+                r = await client.get(f"{KITE_BASE}/quote", params={"i": inst})
+                r.raise_for_status()
+                q = (r.json().get("data") or {}).get(inst) or {}
+            depth = q.get("depth") or {}
+            buy = depth.get("buy") or []
+            sell = depth.get("sell") or []
+            if buy or sell:
+                def norm(rows):
+                    return [{"price": x.get("price"), "qty": x.get("quantity"), "orders": x.get("orders", "—")} for x in rows[:5]]
+                return {"symbol": symbol, "available": True, "source": "zerodha", "ltp": q.get("last_price"), "bids": norm(buy), "asks": norm(sell), "message": "Kite quote market depth."}
+        except Exception as e:
+            # Continue to NSE fallback below.
+            pass
     # Prefer free NSE depth when available. Yahoo has no order book/depth API.
     if state_market_provider() in {"nse_public", "yahoo"}:
         depth = await nse_orderbook(symbol)
@@ -658,7 +715,7 @@ async def get_portfolio():
                 mar_r = await client.get(f"{KITE_BASE}/user/margins"); mar_r.raise_for_status()
                 holdings = []
                 for h in r.json().get("data", []):
-                    holdings.append({"symbol": h.get("tradingsymbol"), "qty": h.get("quantity", 0), "avg": h.get("average_price", 0), "ltp": h.get("last_price", h.get("close_price", 0))})
+                    holdings.append({"symbol": h.get("tradingsymbol"), "exchange": h.get("exchange", "NSE"), "qty": h.get("quantity", 0), "avg": h.get("average_price", 0), "ltp": h.get("last_price", h.get("close_price", 0))})
                 positions = pos_r.json().get("data", {})
                 margins = mar_r.json().get("data", {})
             return {"cash": None, "source": "zerodha", "connected": True, "holdings": holdings, "positions": positions, "margins": margins, "message": f"Fetched {len(holdings)} holdings from Kite."}
