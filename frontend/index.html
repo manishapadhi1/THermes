@@ -266,6 +266,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
     </div>
     <div class="acct">A/C <strong>XK8892</strong></div>
     <button class="settings-btn" onclick="openSettings()" title="Settings">⚙</button>
+    <span class="acct" id="hermesStatus" style="font-size:10px">Connecting…</span>
   </div>
 
   <div style="display:flex;flex-direction:column;overflow:hidden;">
@@ -334,6 +335,8 @@ async function api(url,opts={}){const r=await fetch(API+url,{headers:{'Content-T
 // INIT — fetches Hermes models + settings
 // ═══════════════════════════════════════════════
 async function init(){
+  const statusEl = document.getElementById('hermesStatus');
+  statusEl.textContent = 'Connecting…';
   try{
     const[wl,idx,pf,models,settings]=await Promise.all([
       api('/market/watchlist'),api('/market/indices'),api('/trade/portfolio'),
@@ -341,8 +344,13 @@ async function init(){
     ]);
     S.watchlist=wl;S.indices=idx;S.portfolio={cash:pf.cash,holdings:pf.holdings};
     S.models=models;S.settings=settings;
-    console.log('Hermes connected —',models.groups?.length||0,'provider groups, default:',models.default_model);
-  }catch(e){console.warn('Using embedded data:',e.message);useEmbeddedData();}
+    const provCount=models.groups?.length||0;
+    statusEl.innerHTML=`<span class="dot"></span>Hermes (${provCount} providers)`;
+  }catch(e){
+    console.error('Init failed:',e);
+    statusEl.innerHTML=`<span style="color:var(--tds-danger)">⚠ Hermes offline</span>`;
+    useEmbeddedData();
+  }
   buildModelSelect();
   renderMarketBar();renderWatchlist();renderPortfolio();renderIndices();
   welcomeMsg();
@@ -627,7 +635,8 @@ function addMsg(role,text){
 function fmt(t){return t.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>').replace(/\|(.+)\|/g,m=>{const cells=m.split('|').filter(c=>c.trim());return'<span style="font-family:monospace;font-size:11px">'+cells.map(c=>c.trim()).join(' &nbsp;|&nbsp; ')+'</span>';});}
 
 function welcomeMsg(){
-  addMsg('agent',`Welcome to **THermes**. Connected to Zerodha Kite (XK8892).\n\n**Market:** SENSEX -2.11% — broad sell-off. NIITMTS showing relative strength at +0.71%.\n\nClick any stock for **Technical** (candlestick patterns, RSI, MACD), **Fundamental** (valuation scores), and **one-click Trading**.\n\nUse the goal tags below or just ask me anything.`);
+  const provCount=S.models?.groups?.length||0;
+  addMsg('agent',`Welcome to **THermes** — connected to Hermes Agent (${provCount} providers). Zerodha Kite (XK8892) linked.\n\n**Market:** SENSEX -2.11% — broad sell-off. NIITMTS showing relative strength at +0.71%.\n\nClick any stock for **Technical** (candlestick patterns, RSI, MACD), **Fundamental** (valuation scores), and **one-click Trading**.\n\nUse the goal tags below or chat freely — all messages go through your Hermes agent.`);
 }
 
 async function sendMsg(){
@@ -650,7 +659,7 @@ async function sendMsg(){
     evtSource.addEventListener('done',()=>{evtSource.close();d.removeAttribute('id');});
     evtSource.addEventListener('error',()=>{evtSource.close();if(!fullText){sc.innerHTML='<em>No response from agent.</em>';d.removeAttribute('id');}});
     evtSource.addEventListener('stream_end',()=>{evtSource.close();d.removeAttribute('id');});
-  }catch(e){console.warn('Chat error:',e);d.remove();addMsg('agent',localResponse(text));}
+  }catch(e){console.warn('Chat error:',e);d.remove();addMsg('agent',`**⚠️ Hermes Agent Error**\n\nCould not reach the Hermes agent on port 8787. Make sure Hermes WebUI is running.\n\n**Error:** ${e.message}`);}
 }
 
 function setGoal(goal){

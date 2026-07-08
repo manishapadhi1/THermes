@@ -130,10 +130,36 @@ class ChatStartRequest(BaseModel):
     model_provider: Optional[str] = None
     profile: Optional[str] = None
 
+# Auto-create a session on startup for THermes
+_thermes_session_id: Optional[str] = None
+
+async def get_or_create_session() -> str:
+    global _thermes_session_id
+    if _thermes_session_id:
+        return _thermes_session_id
+    try:
+        r = await HERMES_CLIENT.post("/api/session/new", json={})
+        data = r.json()
+        _thermes_session_id = data.get("session", {}).get("session_id", "")
+        if _thermes_session_id:
+            print(f"[THermes] Created Hermes session: {_thermes_session_id}")
+        return _thermes_session_id
+    except Exception as e:
+        print(f"[THermes] Session creation failed: {e}")
+        return ""
+
 @app.post("/api/chat/start")
 async def proxy_chat_start(req: ChatStartRequest):
     """Start a chat with the Hermes agent, returns stream_id"""
-    r = await HERMES_CLIENT.post("/api/chat/start", json=req.model_dump(exclude_none=True))
+    session_id = req.session_id or await get_or_create_session()
+    if not session_id:
+        raise HTTPException(500, "No Hermes session available — is Hermes running on port 8787?")
+    payload = {"message": req.message, "session_id": session_id}
+    if req.model: payload["model"] = req.model
+    if req.model_provider: payload["model_provider"] = req.model_provider
+    r = await HERMES_CLIENT.post("/api/chat/start", json=payload)
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, f"Hermes chat failed: {r.text}")
     return JSONResponse(r.json(), r.status_code)
 
 @app.get("/api/chat/stream")
