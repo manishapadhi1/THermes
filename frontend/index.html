@@ -125,14 +125,15 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 .verdict-badge.data .vdot{background:var(--tds-text-subtle);}
 
 /* ENTRY/EXIT STRIP */
-.ee-strip{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:8px 16px;margin:0 16px 8px;background:var(--tds-surface-02);border:1px solid rgba(58,81,124,0.25);border-radius:var(--radius-card);}
-.ee-item{text-align:center;padding:6px 0;}
+.ee-strip{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;padding:8px 12px;margin:0 12px 8px;background:var(--tds-surface-02);border:1px solid rgba(58,81,124,0.25);border-radius:var(--radius-card);}
+.ee-item{text-align:center;padding:4px 0;}
 .ee-item .el{font-family:var(--font-compact);font-size:8px;font-weight:600;text-transform:uppercase;color:var(--tds-text-subtle);}
-.ee-item .ev{font-family:var(--font-display);font-size:16px;font-weight:700;}
-.ee-item .es{font-family:var(--font-compact);font-size:9px;color:var(--tds-text-subtle);}
+.ee-item .ev{font-family:var(--font-display);font-size:14px;font-weight:700;}
+.ee-item .es{font-family:var(--font-compact);font-size:8px;color:var(--tds-text-subtle);}
 .ee-item.entry .ev{color:var(--tds-blue-light);}
 .ee-item.stop .ev{color:var(--tds-danger);}
 .ee-item.target .ev{color:var(--tds-success);}
+.ee-item.maxbuy .ev{color:var(--tds-warning);}
 
 /* TABS */
 .d-tabs{display:flex;gap:0;flex-wrap:wrap;padding:0 16px;border-bottom:1px solid rgba(58,81,124,0.2);}
@@ -645,12 +646,20 @@ function computeVerdict(s){
 function hasReliableAnalysis(s){return Number(s.pe)>0 && Number(s.high52)>0 && s.sentiment && (s.sentiment.bull||0)>0;}
 
 function computeEE(s){
-  if(s.researchEntry||s.researchStop||s.researchTarget)return {entry:Number(s.researchEntry||s.ltp),stop:Number(s.researchStop||s.ltp*0.95),target:Number(s.researchTarget||s.ltp*1.05)};
+  // Use enriched technical data if available, otherwise compute from intraday
+  if(s.researchEntry||s.researchStop||s.researchTarget){
+    const entry=Number(s.researchEntry||s.ltp);
+    const stop=Number(s.researchStop||entry*0.95);
+    const target=Number(s.researchTarget||entry*1.08);
+    const maxBuy=s.researchMaxBuy?Number(s.researchMaxBuy):target;
+    return{entry,stop,target,maxBuy};
+  }
   const pivot=(s.h+s.l+s.ltp)/3;s1=2*pivot-s.h;r1=2*pivot-s.l;
   const entry=Math.max(s1,s.ltp*0.985);
   const stop=entry*(s.pe<15?0.94:0.96);
   const target=Math.min(r1,entry*1.08);
-  return{entry,stop,target};
+  const maxBuy=target;
+  return{entry,stop,target,maxBuy};
 }
 
 function renderDetail(sym){
@@ -668,6 +677,7 @@ function renderDetail(sym){
       researchEntry:enrich.researchEntry??s.researchEntry,
       researchStop:enrich.researchStop??s.researchStop,
       researchTarget:enrich.researchTarget??s.researchTarget,
+      researchMaxBuy:enrich.researchMaxBuy??s.researchMaxBuy,
       researchNotes:enrich.researchNotes||s.researchNotes,
       fundamentals_available:enrich.fundamentals_available??s.fundamentals_available,
     };
@@ -688,6 +698,7 @@ function renderDetail(sym){
     </div>
     <div class="ee-strip">
       <div class="ee-item entry"><div class="el">🎯 Entry</div><div class="ev">₹${ee.entry.toFixed(2)}</div><div class="es">${((ee.entry/s.ltp-1)*100).toFixed(1)}% from CMP</div></div>
+      <div class="ee-item maxbuy"><div class="el">⬆ Max Buy</div><div class="ev">₹${ee.maxBuy.toFixed(2)}</div><div class="es">Max entry price</div></div>
       <div class="ee-item stop"><div class="el">🛑 Stop Loss</div><div class="ev">₹${ee.stop.toFixed(2)}</div><div class="es">${((1-ee.stop/s.ltp)*100).toFixed(1)}% risk</div></div>
       <div class="ee-item target"><div class="el">🏁 Target</div><div class="ev">₹${ee.target.toFixed(2)}</div><div class="es">+${((ee.target/s.ltp-1)*100).toFixed(1)}% upside</div></div>
     </div>
@@ -956,17 +967,19 @@ function applyResearchData(symbol,data){
   if(funda.profit)s.profit=Number(funda.profit);
 
   s.researchVerdict=tech.recommendation||data.recommendation||'HOLD';
-  s.researchEntry=data.entry||tech.s1;
-  s.researchStop=data.stop_loss||(tech.s1?Number(tech.s1)*0.95:null);
-  s.researchTarget=data.target||tech.r1;
+  s.researchEntry=data.entry||tech.entry;
+  s.researchStop=data.stop_loss||tech.stop_loss||(tech.entry?Number(tech.entry)*0.95:null);
+  s.researchTarget=data.target||tech.target;
+  s.researchMaxBuy=data.max_buy||tech.max_buy||data.target||tech.target;
   s.researchNotes=`screener.in · ${tech.source||'computed'} technicals · ${senti.source||'news'} sentiment`;
   s.fundamentals_available=!!(s.pe||s.eps||s.mcap);
 
   S.enriched[symbol]={...S.enriched[symbol]||{},
     name:s.name,pe:s.pe,eps:s.eps,mcap:s.mcap,high52:s.high52,low52:s.low52,
     sector:s.sector,sentiment:s.sentiment,
-    researchVerdict:s.researchVerdict,researchEntry:s.researchEntry,
-    researchStop:s.researchStop,researchTarget:s.researchTarget,
+      researchVerdict:s.researchVerdict,researchEntry:s.researchEntry,
+      researchStop:s.researchStop,researchTarget:s.researchTarget,
+      researchMaxBuy:s.researchMaxBuy,
     researchNotes:s.researchNotes,fundamentals_available:s.fundamentals_available,
     researchedAt:Date.now()};
   saveEnrichedSymbol(symbol);

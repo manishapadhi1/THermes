@@ -618,7 +618,18 @@ def compute_technicals(symbol: str, candles: List[Dict]) -> Dict[str, Any]:
     # Support/Resistance (simple: recent swing highs/lows)
     pivot = (max(highs[-20:]) + min(lows[-20:]) + current) / 3 if len(highs) >= 5 else current
     s1 = 2 * pivot - max(highs[-20:]) if len(highs) >= 5 else current * 0.95
+    s2 = pivot - (max(highs[-20:]) - min(lows[-20:])) if len(highs) >= 5 else current * 0.90
     r1 = 2 * pivot - min(lows[-20:]) if len(lows) >= 5 else current * 1.05
+    r2 = pivot + (max(highs[-20:]) - min(lows[-20:])) if len(highs) >= 5 else current * 1.10
+
+    # Entry: nearest support level below current price
+    entry = s1 if s1 < current else min(lows[-5:]) if len(lows) >= 5 else current * 0.98
+    # Max buy: nearest resistance — don't chase above this
+    max_buy = r1
+    # Target: R1 or 1.08x entry, whichever is tighter
+    target = min(r1, entry * 1.08) if entry > 0 else current * 1.05
+    # Stop: S2 or 5% below entry
+    stop_loss = max(s2, entry * 0.94) if entry > 0 else current * 0.95
 
     # Candlestick patterns (last candle)
     last = candles[-1] if candles else {}
@@ -660,7 +671,13 @@ def compute_technicals(symbol: str, candles: List[Dict]) -> Dict[str, Any]:
         "above_ma200": current > ma200,
         "pivot": round(pivot, 2),
         "s1": round(s1, 2),
+        "s2": round(s2, 2),
         "r1": round(r1, 2),
+        "r2": round(r2, 2),
+        "entry": round(entry, 2),
+        "max_buy": round(max_buy, 2),
+        "stop_loss": round(stop_loss, 2),
+        "target": round(target, 2),
         "patterns": patterns,
         "recommendation": "BUY" if buy_signals > sell_signals else "SELL" if sell_signals > buy_signals else "HOLD",
         "buy_signals": buy_signals,
@@ -759,9 +776,10 @@ async def enrich_symbol(symbol: str):
         "high52": funda.get("high52"),
         "low52": funda.get("low52"),
         "sector": funda.get("sector", ""),
-        "entry": tech.get("s1"),
-        "stop_loss": round(float(tech.get("s1", 0) or 0) * 0.95, 2) if tech.get("s1") else None,
-        "target": tech.get("r1"),
+        "entry": tech.get("entry"),
+        "max_buy": tech.get("max_buy"),
+        "stop_loss": tech.get("stop_loss"),
+        "target": tech.get("target"),
         "recommendation": tech.get("recommendation", "HOLD"),
     }
     return result
