@@ -733,20 +733,44 @@ function switchDT(tab){
 // ═══════════════════════════════════════════════
 // CHART
 // ═══════════════════════════════════════════════
-function renderChart(s){const tf=['1m','5m','15m','1h','1d','1mo','6mo','1y','5y','all'];return`<div class="card"><h4>Chart — ${s.symbol} <span id="tfLabel" style="color:var(--tds-text-subtle);font-size:9px">${S.chartTf}</span></h4><div class="timeframe-row">${tf.map(x=>`<button class="timeframe-btn ${x===S.chartTf?'active':''}" onclick="setTimeframe(this,'${x}')">${x}</button>`).join('')}</div><canvas class="chart-c" id="miniChart" width="680" height="280"></canvas><div id="chartStatus" style="font-size:9px;color:var(--tds-text-subtle);margin-top:4px">Loading candles…</div></div><div class="card"><h4>Key Stats</h4>${[['Open','₹'+s.o.toFixed(s.o<100?2:0)],['High','₹'+s.h.toFixed(s.h<100?2:0)],['Low','₹'+s.l.toFixed(s.l<100?2:0)],['Prev Close','₹'+s.pc.toFixed(s.pc<100?2:0)],['Volume',(s.vol/100000).toFixed(2)+'L'],['Avg Vol',(s.avgVol/100000).toFixed(2)+'L'],['P/E',s.pe&&s.pe!==0?s.pe:'N/A'],['Mkt Cap','₹'+(s.mcap/1000).toFixed(0)+'K Cr']].map(([l,v])=>`<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`).join('')}</div>`;}
-function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const lab=document.getElementById('tfLabel');if(lab)lab.textContent=tf;const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)loadChart(s);}
+function renderChart(s){const tf=['1','5','15','60','D','W','M'];const labels={1:'1m',5:'5m',15:'15m',60:'1h',D:'1d',W:'1w',M:'1mo'};return`<div class="card"><h4>Chart — ${s.symbol}</h4><div class="timeframe-row">${tf.map(x=>`<button class="timeframe-btn ${x===S.chartTf?'active':''}" onclick="setTimeframe(this,'${x}')">${labels[x]||x}</button>`).join('')}</div><div id="tvChartContainer" style="width:100%;height:400px;background:var(--tds-surface-02);border-radius:4px"></div><div id="chartStatus" style="font-size:9px;color:var(--tds-text-subtle);margin-top:4px">TradingView chart</div></div><div class="card"><h4>Key Stats</h4>${[['Open','₹'+s.o.toFixed(s.o<100?2:0)],['High','₹'+s.h.toFixed(s.h<100?2:0)],['Low','₹'+s.l.toFixed(s.l<100?2:0)],['Prev Close','₹'+s.pc.toFixed(s.pc<100?2:0)],['Volume',(s.vol/100000).toFixed(2)+'L'],['Avg Vol',(s.avgVol/100000).toFixed(2)+'L'],['P/E',s.pe&&s.pe!==0?s.pe:'N/A'],['Mkt Cap','₹'+(s.mcap/1000).toFixed(0)+'K Cr']].map(([l,v])=>`<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`).join('')}</div>`;}
+function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s&&window.tvWidget)window.tvWidget.setSymbol(`NSE:${s.symbol}`,tf,()=>{});}
 
-async function loadChart(s){
-  const status=document.getElementById('chartStatus');
-  if(status)status.innerHTML='<span class="loading-inline"><span class="spinner"></span>Loading candles…</span>';
-  try{
-    const d=await api(`/market/intraday/${encodeURIComponent(s.symbol)}?tf=${encodeURIComponent(S.chartTf)}`);
-    if(status)status.textContent=`${d.source||'source'} · ${d.live?'live':'delayed/free'} · ${d.candles?.length||0} candles`;
-    drawChart(s,d.candles||[]);
-  }catch(e){
-    if(status)status.textContent=`Chart fetch failed: ${e.message}`;
-    drawChart(s,[]);
-  }
+function loadChart(s){
+  document.getElementById('chartStatus').textContent='Loading TradingView chart…';
+  if(window.tvScriptLoaded){initTVChart(s);return;}
+  const script=document.createElement('script');
+  script.src='https://s3.tradingview.com/tv.js';
+  script.onload=()=>{window.tvScriptLoaded=true;initTVChart(s);};
+  script.onerror=()=>{document.getElementById('chartStatus').textContent='TradingView failed to load';};
+  document.head.appendChild(script);
+}
+function initTVChart(s){
+  if(window.tvWidget){window.tvWidget.remove();}
+  const container=document.getElementById('tvChartContainer');
+  if(!container)return;
+  window.tvWidget=new TradingView.widget({
+    container_id:'tvChartContainer',
+    symbol:`NSE:${s.symbol}`,
+    interval:S.chartTf||'15',
+    theme:'dark',
+    style:'1',
+    locale:'in',
+    toolbar_bg:'#15181D',
+    enable_publishing:false,
+    hide_side_toolbar:false,
+    allow_symbol_change:false,
+    width:'100%',
+    height:400,
+    studies:['RSI@tv-basicstudies','MACD@tv-basicstudies'],
+    overrides:{
+      'paneProperties.background':'#15181D',
+      'paneProperties.vertGridProperties.color':'rgba(58,81,124,0.2)',
+      'paneProperties.horzGridProperties.color':'rgba(58,81,124,0.2)',
+    },
+  });
+  document.getElementById('chartStatus').textContent='TradingView · NSE:'+s.symbol;
+}
 }
 
 function drawChart(s,candles=[]){
