@@ -51,6 +51,75 @@ def zerodha_login_url(api_key: str) -> str:
 
 DEFAULT_SYMBOLS = ["NIITMTS", "TCS", "INFY", "RELIANCE", "ITC", "HDFCBANK", "SBIN", "YESBANK"]
 YAHOO_SUFFIX = ".NS"
+ANGEL_BASE = "https://apiconnect.angelbroking.com"
+
+# ═══════════════════════════════════════════════════════
+# Angel One SmartAPI client
+# ═══════════════════════════════════════════════════════
+
+def angel_config() -> dict:
+    return load_state().get("brokers", {}).get("angel_broking", {})
+
+async def angel_auth() -> Optional[str]:
+    """Login to Angel One and return jwtToken."""
+    cfg = angel_config()
+    if not cfg.get("api_key") or not cfg.get("client_id") or not cfg.get("password"):
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(f"{ANGEL_BASE}/rest/auth/angelbroking/user/v1/loginByPassword", json={
+                "clientcode": cfg["client_id"], "password": cfg["password"], "totp": ""
+            }, headers={"Content-Type": "application/json", "Accept": "application/json", "X-UserType": "USER", "X-SourceID": "WEB", "X-ClientLocalIP": "127.0.0.1", "X-ClientPublicIP": "127.0.0.1", "X-MACAddress": "00:00:00:00:00:00", "X-PrivateKey": cfg["api_key"]})
+            data = r.json()
+            if data.get("status") and data.get("data", {}).get("jwtToken"):
+                return data["data"]["jwtToken"]
+    except Exception:
+        pass
+    return None
+
+async def angel_headers() -> Optional[dict]:
+    token = await angel_auth()
+    if not token:
+        return None
+    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json", "X-UserType": "USER", "X-SourceID": "WEB", "X-ClientLocalIP": "127.0.0.1", "X-ClientPublicIP": "127.0.0.1", "X-MACAddress": "00:00:00:00:00:00", "X-PrivateKey": angel_config().get("api_key", "")}
+
+async def angel_quote(symbol: str) -> Optional[Dict[str, Any]]:
+    """Get LTP/OHLC quote from Angel One."""
+    hdrs = await angel_headers()
+    if not hdrs: return None
+    try:
+        # Search scrip first to get token
+        search_r = await httpx.AsyncClient(timeout=8.0).post(
+            f"{ANGEL_BASE}/rest/secure/angelbroking/market/v1/searchscrip",
+            json={"exchange": "NSE", "searchscrip": symbol.upper()}, headers=hdrs)
+        search_data = search_r.json()
+        if not search_data.get("status") or not search_data.get("data"):
+            return None
+        items = search_data["data"]
+        if not items: return None
+        token = items[0].get("token") or items[0].get("symboltoken")
+        if not token: return None
+        # Get quote
+        r = await httpx.AsyncClient(timeout=8.0).post(
+            f"{ANGEL_BASE}/rest/secure/angelbroking/market/v1/quote/",
+            json={"mode": "FULL", "exchangeTokens": {f"NSE": [token]}}, headers=hdrs)
+        data = r.json()
+        if not data.get("status") or not data.get("data"):
+            return None
+        q = (data["data"].get("fetched") or [{}])[0]
+        return {
+            "symbol": symbol.upper(), "name": q.get("name", symbol),
+            "ltp": float(q.get("ltp", 0)), "change": float(q.get("netChange", 0)),
+            "changePct": float(q.get("percentChange", 0)),
+            "o": float(q.get("open", 0)), "h": float(q.get("high", 0)),
+            "l": float(q.get("low", 0)), "pc": float(q.get("close", q.get("previousClose", 0))),
+            "vol": int(q.get("volume", 0)), "avgVol": 0,
+            "high52": float(q.get("high52", 0)), "low52": float(q.get("low52", 0)),
+            "pe": None, "eps": None, "mcap": None, "fundamentals_available": False,
+            "source": "angel_one", "delay_note": "Angel One SmartAPI; may be delayed for free accounts.",
+        }
+    except Exception:
+        return None
 
 def state_market_provider() -> str:
     st = load_state()
@@ -59,7 +128,57 @@ def state_market_provider() -> str:
 def yahoo_symbol(symbol: str) -> str:
     return symbol if "." in symbol else f"{symbol}{YAHOO_SUFFIX}"
 
-async def yahoo_quote(symbol: str) -> Optional[Dict[str, Any]]:
+async def angel_candles(symbol: str, tf: str) -> Optional[List[Dict[str, Any]]]:
+    """Get historical candles from Angel One."""
+    hdrs = await angel_headers()
+    if not hdrs: return None
+    # Map timeframe to Angel interval
+    interval_map = {"1m": "ONE_MINUTE", "5m": "FIVE_MINUTE", "15m": "FIFTEEN_MINUTE", "1h": "ONE_HOUR", "1d": "ONE_DAY"}
+    from datetime import datetime, timedelta
+    to_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+    days = {"1m": 1, "5m": 5, "15m": 5, "1h": 30, "1d": 180}.get(tf, 5)
+    from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M")
+    try:
+        # Search token first
+        sr = await httpx.AsyncClient(timeout=8.0).post(f"{ANGEL_BASE}/rest/secure/angelbroking/market/v1/searchscrip", json={"exchange": "NSE", "searchscrip": symbol.upper()}, headers=hdrs)
+        items = (sr.json().get("data") or [])
+        if not items: return None
+        token = items[0].get("token")
+        r = await httpx.AsyncClient(timeout=10.0).post(f"{ANGEL_BASE}/rest/secure/angelbroking/historical/v1/getCandleData", json={"exchange": "NSE", "symboltoken": token, "interval": interval_map.get(tf, "FIFTEEN_MINUTE"), "fromdate": from_date, "todate": to_date}, headers=hdrs)
+        data = r.json()
+        if not data.get("status") or not data.get("data"):
+            return None
+        rows = []
+        for c in data["data"]:
+            if len(c) >= 6:
+                rows.append({"t": int(datetime.strptime(str(c[0]), "%Y-%m-%dT%H:%M:%S%z").timestamp()) if c[0] else 0,
+                              "o": float(c[1]), "h": float(c[2]), "l": float(c[3]), "c": float(c[4]), "v": int(c[5])})
+        return rows[-240:]
+    except Exception:
+        return None
+
+async def angel_depth(symbol: str) -> Optional[Dict[str, Any]]:
+    """Get market depth / order book from Angel One."""
+    hdrs = await angel_headers()
+    if not hdrs: return None
+    try:
+        sr = await httpx.AsyncClient(timeout=8.0).post(f"{ANGEL_BASE}/rest/secure/angelbroking/market/v1/searchscrip", json={"exchange": "NSE", "searchscrip": symbol.upper()}, headers=hdrs)
+        items = (sr.json().get("data") or [])
+        if not items: return None
+        token = items[0].get("token")
+        r = await httpx.AsyncClient(timeout=8.0).post(f"{ANGEL_BASE}/rest/secure/angelbroking/market/v1/quote/", json={"mode": "FULL", "exchangeTokens": {"NSE": [token]}}, headers=hdrs)
+        data = r.json()
+        q = (data.get("data", {}).get("fetched") or [{}])[0]
+        depth = q.get("depth") or {}
+        buy = depth.get("buy") or []
+        sell = depth.get("sell") or []
+        if not buy and not sell:
+            return {"available": False, "source": "angel_one", "message": "No depth data from Angel One"}
+        def norm(rows):
+            return [{"price": x.get("price"), "qty": x.get("quantity"), "orders": x.get("orders", "—")} for x in rows[:5]]
+        return {"available": True, "source": "angel_one", "ltp": q.get("ltp"), "bids": norm(buy), "asks": norm(sell), "message": "Angel One SmartAPI market depth"}
+    except Exception as e:
+        return {"available": False, "source": "angel_one", "message": str(e)[:200]}
     """Free Yahoo chart API. Usually delayed; not suitable for guaranteed exchange-real-time trading."""
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol(symbol)}"
     try:
@@ -448,6 +567,7 @@ async def get_market_providers():
     return {
         "active": state_market_provider(),
         "providers": [
+            {"id": "angel_one", "name": "Angel One SmartAPI", "free": False, "live": True, "note": "Requires Angel One account. Live quotes, candles, depth, orders via SmartAPI."},
             {"id": "yahoo", "name": "Yahoo Finance", "free": True, "live": False, "note": "Free, usually delayed. Supports NSE symbols via .NS."},
             {"id": "nse_public", "name": "NSE public endpoints", "free": True, "live": False, "note": "Unofficial, may rate-limit/block; best effort only."},
             {"id": "fallback", "name": "Static fallback", "free": True, "live": False, "note": "Bundled demo values only."},
@@ -460,7 +580,7 @@ class MarketProviderUpdate(BaseModel):
 
 @app.put("/api/market/provider")
 async def set_market_provider(update: MarketProviderUpdate):
-    if update.provider not in {"yahoo", "nse_public", "fallback"}:
+    if update.provider not in {"yahoo", "nse_public", "fallback", "angel_one"}:
         raise HTTPException(400, "Unsupported market data provider")
     st = load_state()
     st["market_data"] = {"provider": update.provider, "symbols": update.symbols or st.get("market_data", {}).get("symbols", DEFAULT_SYMBOLS)}
@@ -470,9 +590,11 @@ async def set_market_provider(update: MarketProviderUpdate):
 @app.get("/api/market/quote/{symbol}")
 async def get_market_quote(symbol: str):
     provider = state_market_provider()
-    q = await (yahoo_quote(symbol) if provider == "yahoo" else nse_quote(symbol) if provider == "nse_public" else None)
-    if q:
-        return q
+    q = None
+    if provider == "angel_one": q = await angel_quote(symbol)
+    elif provider == "yahoo": q = await yahoo_quote(symbol)
+    elif provider == "nse_public": q = await nse_quote(symbol)
+    if q: return q
     # Fallback to static if symbol exists there
     for row in await get_watchlist():
         if row.get("symbol") == symbol.upper():
@@ -904,10 +1026,10 @@ async def get_watchlist():
          "sector":"Banking","sentiment":{"bull":30,"neutral":35,"bear":35}},
     ]
     meta = {x["symbol"]: x for x in fallback}
-    if provider in {"yahoo", "nse_public"}:
+    if provider in {"yahoo", "nse_public", "angel_one"}:
         rows = []
         for sym in symbols:
-            q = await (yahoo_quote(sym) if provider == "yahoo" else nse_quote(sym))
+            q = await (angel_quote(sym) if provider == "angel_one" else yahoo_quote(sym) if provider == "yahoo" else nse_quote(sym))
             base = meta.get(sym, {"symbol": sym, "name": names.get(sym, sym), "pe": 0, "high52": 0, "low52": 0, "eps": 0, "mcap": 0, "sector": "", "sentiment": {"bull": 50, "neutral": 30, "bear": 20}})
             if q:
                 rows.append({**base, **q, "name": base.get("name", sym)})
@@ -943,6 +1065,9 @@ async def market_status():
 @app.get("/api/market/intraday/{symbol}")
 async def get_intraday(symbol: str, tf: str = "1d"):
     provider = state_market_provider()
+    if provider == "angel_one":
+        rows = await angel_candles(symbol, tf)
+        if rows: return {"symbol": symbol, "tf": tf, "source": "angel_one", "live": True, "delay_note": "Angel One SmartAPI candles.", "candles": rows}
     if provider == "yahoo":
         rows = await yahoo_candles(symbol, tf)
         if rows:
@@ -970,7 +1095,11 @@ async def get_intraday(symbol: str, tf: str = "1d"):
 
 @app.get("/api/market/orderbook/{symbol}")
 async def get_orderbook(symbol: str):
-    # Prefer Kite quote/depth when Zerodha is connected.
+    # Prefer Angel One depth if provider is angel_one
+    if state_market_provider() == "angel_one":
+        depth = await angel_depth(symbol)
+        if depth: return {"symbol": symbol, **depth}
+    # Prefer Zerodha quote/depth when Zerodha is connected.
     broker = load_state().get("brokers", {}).get("zerodha", {})
     if broker.get("api_key") and broker.get("access_token"):
         try:
