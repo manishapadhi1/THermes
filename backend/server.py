@@ -1277,12 +1277,25 @@ async def get_recommendations(symbol: str, agent: str = "careful"):
 
 # Multi-timeframe recommendation engine
 TIMEFRAME_CONFIG = {
-    "5m":  {"tf": "1d", "label": "5 Minutes",   "stop_pct": 0.003, "target_pct": 0.005, "rsi_buy": 30, "rsi_sell": 75},
-    "15m": {"tf": "1d", "label": "15 Minutes",  "stop_pct": 0.005, "target_pct": 0.008, "rsi_buy": 30, "rsi_sell": 75},
-    "1h":  {"tf": "5d", "label": "1 Hour",      "stop_pct": 0.008, "target_pct": 0.015, "rsi_buy": 28, "rsi_sell": 78},
-    "6h":  {"tf": "5d", "label": "6 Hours",     "stop_pct": 0.015, "target_pct": 0.025, "rsi_buy": 25, "rsi_sell": 80},
-    "1d":  {"tf": "1mo","label": "1 Day",       "stop_pct": 0.020, "target_pct": 0.040, "rsi_buy": 25, "rsi_sell": 80},
+    "5m":  {"tf": "1d", "label": "5 Minutes",   "risk_mult": 1.0, "reward_mult": 1.5},
+    "15m": {"tf": "1d", "label": "15 Minutes",  "risk_mult": 1.2, "reward_mult": 1.8},
+    "1h":  {"tf": "5d", "label": "1 Hour",      "risk_mult": 1.5, "reward_mult": 2.0},
+    "6h":  {"tf": "5d", "label": "6 Hours",     "risk_mult": 2.0, "reward_mult": 2.5},
+    "1d":  {"tf": "1mo","label": "1 Day",       "risk_mult": 2.5, "reward_mult": 3.0},
 }
+
+def compute_atr(candles: List[Dict], period: int = 14) -> float:
+    """Average True Range — computes the stock's actual volatility."""
+    if len(candles) < period + 1:
+        return 0
+    tr_values = []
+    for i in range(1, len(candles)):
+        h = float(candles[i].get("h", candles[i].get("high", 0)))
+        l = float(candles[i].get("l", candles[i].get("low", 0)))
+        pc = float(candles[i-1].get("c", candles[i-1].get("close", 0)))
+        tr = max(h - l, abs(h - pc), abs(l - pc))
+        tr_values.append(tr)
+    return sum(tr_values[-period:]) / period
 
 @app.get("/api/recommendations/multi/{symbol}")
 async def multi_timeframe_recommendations(symbol: str):
@@ -1291,14 +1304,21 @@ async def multi_timeframe_recommendations(symbol: str):
     for key, cfg in TIMEFRAME_CONFIG.items():
         candles = await yahoo_candles(sym, cfg["tf"])
         tech = compute_technicals(sym, candles or [])
-        if not tech.get("success"):
+        if not tech.get("success") or not candles or len(candles) < 5:
             results[key] = {"label": cfg["label"], "action": "HOLD", "entry": None, "reason": "No candle data"}
             continue
+        
+        # Compute ATR-based stop/target from actual stock volatility
+        atr = compute_atr(candles) or 0.01
+        current = float(candles[-1].get("c", candles[-1].get("close", 0)))
+        if current <= 0: current = entry = tech.get("entry", 100)
+        atr_pct = (atr / current) if current > 0 else 0.01
+        
         rsi = tech.get("rsi", 50); macd = tech.get("macd", 0)
-        entry = tech.get("entry", 0)
+        entry = tech.get("entry", current)
         buy = sell = 0
-        if rsi < cfg["rsi_buy"]: buy += 3
-        elif rsi > cfg["rsi_sell"]: sell += 3
+        if rsi < 32: buy += 3
+        elif rsi > 72: sell += 3
         elif rsi < 45: buy += 1
         elif rsi > 60: sell += 1
         if macd > 0: buy += 2
@@ -1306,20 +1326,25 @@ async def multi_timeframe_recommendations(symbol: str):
         for p in tech.get("patterns", []):
             if p["type"] == "bullish": buy += 2
             elif p["type"] == "bearish": sell += 2
+        
+        # Dynamic stop/target based on ATR
+        stop_dist = atr * cfg["risk_mult"]
+        target_dist = atr * cfg["reward_mult"]
+        
         if buy > sell + 1:
             action = "BUY"
-            stop = round(entry * (1 - cfg["stop_pct"]), 2) if entry else None
-            target = round(entry * (1 + cfg["target_pct"]), 2) if entry else None
-            reason = f"RSI {rsi} oversold, MACD bullish" if rsi < cfg["rsi_buy"] else "Bullish"
+            stop = round(entry - stop_dist, 2) if entry else None
+            target = round(entry + target_dist, 2) if entry else None
+            reason = f"RSI {rsi} oversold" if rsi < 32 else "Bullish"
         elif sell > buy + 1:
             action = "SELL"
-            stop = round(entry * (1 + cfg["stop_pct"]), 2) if entry else None
-            target = round(entry * (1 - cfg["target_pct"]), 2) if entry else None
-            reason = f"RSI {rsi} overbought, MACD bearish" if rsi > cfg["rsi_sell"] else "Bearish"
+            stop = round(entry + stop_dist, 2) if entry else None
+            target = round(entry - target_dist, 2) if entry else None
+            reason = f"RSI {rsi} overbought" if rsi > 72 else "Bearish"
         else:
             action = "HOLD"
-            stop = round(entry * 0.99, 2) if entry else None
-            target = round(entry * 1.015, 2) if entry else None
+            stop = round(entry - stop_dist, 2) if entry else None
+            target = round(entry + target_dist * 0.5, 2) if entry else None
             reason = "Neutral — wait"
         results[key] = {"label": cfg["label"], "action": action, "entry": entry,
                          "stop": stop, "target": target, "rsi": round(rsi, 1),
