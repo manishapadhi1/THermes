@@ -1,6 +1,6 @@
 # THermes — Agentic Trading Platform
 
-**Scania Tegel Design** | **Multi-LLM** | **Multi-Broker** | **Autonomous Agents**
+ **Multi-Broker** | **Autonomous Agents**
 
 A full-featured trading platform with an AI agent chat interface, inspired by Hermes WebUI. Connects to Zerodha Kite and Angel Broking for order execution, supports multiple LLM backends (DeepSeek, OpenAI, Claude, Gemini, Qwen), includes autonomous trading agents with three risk profiles, and integrates MCP servers and skills.
 
@@ -44,11 +44,6 @@ Three risk profiles:
 
 - Autonomous scan mode — agent runs periodic analysis and generates trade signals
 - Configurable from Settings panel
-
-### 🎨 Design System
-- **Scania Tegel** dark theme (navy, blue, crisp 4px radii)
-- Scania Sans typography with fallbacks
-- Fully responsive — mobile slide-out sidebar and detail panel
 
 ## Quick Start
 
