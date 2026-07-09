@@ -759,15 +759,15 @@ function drawChart(s,candles=[]){
   // Use real OHLC candle data — filter to market hours (9:15-15:30 IST = 3:45-10:00 UTC)
   const MARKET_OPEN_UTC=3*3600+45*60;
   const MARKET_CLOSE_UTC=10*3600;
-  const bars=(candles||[]).map(c=>{
-    const utcSec=c.t?c.t%86400:0;
-    if(c.t){
-      // Store IST time for display (epoch + 5h30m offset)
-      c._istTime=new Date((c.t+19800)*1000);
-    }
-    return {o:Number(c.o??c.open),h:Number(c.h??c.high),l:Number(c.l??c.low),c:Number(c.c??c.close),
-            t:c._istTime||null,utcSec};
-  }).filter(b=>Number.isFinite(b.c)&&b.utcSec>=MARKET_OPEN_UTC&&b.utcSec<=MARKET_CLOSE_UTC);
+  const bars=[];
+  for(let i=0;i<(candles||[]).length;i++){
+    const c=candles[i];
+    const o=Number(c.o??c.open),h=Number(c.h??c.high),l=Number(c.l??c.low),cl=Number(c.c??c.close);
+    if(!Number.isFinite(cl))continue;
+    const utcSec=(c.t||0)%86400;
+    if(utcSec<MARKET_OPEN_UTC||utcSec>MARKET_CLOSE_UTC)continue;
+    bars.push({o,h,l,c:cl,t:c.t?new Date((c.t+19800)*1000):null,utcSec});
+  }
   
   if(!bars.length){ctx.clearRect(0,0,W,H);ctx.fillStyle='#AAC9F6';ctx.font='12px sans-serif';ctx.textAlign='center';ctx.fillText('No market-hours candle data',W/2,H/2);return;}
 
@@ -868,50 +868,6 @@ function drawChart(s,candles=[]){
     ctx.font='bold 9px "Scania Sans",-apple-system,sans-serif';ctx.textAlign='right';
     const msg=nearResistance?'⚠ Breaking resistance':'⚠ Testing support';
     ctx.fillText(msg,W-pad.r-4,pad.t+12);
-  }
-}
-
-  // Candlestick bars
-  const barW=Math.max(2,Math.min(12,(pw/n)*0.6));
-  ctx.shadowBlur=0; // ensure no shadow artifacts on bars
-  
-  for(let i=0;i<n;i++){
-    const b=bars[i];
-    const x=pad.l+(pw/(n-1))*i-(barW/2);
-    const isUp=b.c>=b.o;
-    const color=isUp?'#65BDA5':'#EA4851';
-    
-    // Wick
-    ctx.strokeStyle=color;ctx.lineWidth=1;
-    ctx.beginPath();
-    ctx.moveTo(x+barW/2,yS(b.h));
-    ctx.lineTo(x+barW/2,yS(b.l));
-    ctx.stroke();
-
-    // Body
-    const bodyTop=yS(Math.max(b.o,b.c));
-    const bodyH=Math.max(1,Math.abs(yS(b.o)-yS(b.c)));
-    ctx.fillStyle=isUp?'#65BDA5':'#EA4851';
-    ctx.fillRect(x,bodyTop,barW,bodyH);
-  }
-
-  // Time labels
-  const labelCount=Math.min(6,n);
-  ctx.fillStyle='#AAC9F6';ctx.font='9px "Scania Sans",-apple-system,sans-serif';ctx.textAlign='center';ctx.textBaseline='top';
-  for(let i=0;i<=labelCount;i++){
-    const idx=Math.min(Math.floor(i*(n-1)/Math.max(labelCount,1)),n-1);
-    const b=bars[idx];
-    const x=pad.l+(pw/(n-1))*idx;
-    let label='';
-    if(b.t){
-      const d=b.t;
-      if(S.chartTf==='1d'||S.chartTf==='1mo'||S.chartTf==='6mo'||S.chartTf==='1y'||S.chartTf==='5y'||S.chartTf==='all'){
-        label=d.getDate()+'/'+(d.getMonth()+1);
-      }else{
-        label=d.getHours()+':'+String(d.getMinutes()).padStart(2,'0');
-      }
-    }else{label='#'+idx;}
-    ctx.fillText(label,x,H-pad.b+12);
   }
 }
 
