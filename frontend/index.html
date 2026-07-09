@@ -44,8 +44,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 .change-down{color:var(--tds-danger);}
 
 /* MAIN BODY */
-.main{display:grid;grid-template-columns:260px 1fr 1px;overflow:hidden;height:100%;}
-.main.has-detail{grid-template-columns:260px 1fr 380px;}
+.main{display:grid;grid-template-columns:260px 1fr 380px;overflow:hidden;height:100%;}
 .main>div{overflow:hidden;}
 
 /* SIDEBAR */
@@ -101,7 +100,6 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 
 /* DETAIL PANEL */
 .detail{background:var(--tds-surface-01);border-left:1px solid rgba(58,81,124,0.3);display:flex;flex-direction:column;overflow-y:auto;transition:all 0.25s var(--motion);}
-.detail.hidden{display:none;}
 .detail-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(58,81,124,0.2);}
 .detail-hdr h2{font-family:var(--font-display);font-size:16px;font-weight:700;}
 .close-btn{width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:none;border:1px solid var(--tds-border);border-radius:var(--radius-card);color:var(--tds-text-subtle);cursor:pointer;}
@@ -289,8 +287,9 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
   .app{height:100dvh;grid-template-rows:48px minmax(0,1fr);}
   .app>div:nth-child(2){min-height:0;}
   .main{grid-template-columns:1fr;}
-  .main.has-detail{grid-template-columns:1fr;}
-  .chat-area{height:100%;min-height:0;}
+  .chat-area{position:fixed;right:-100%;top:48px;bottom:0;width:380px;max-width:92vw;z-index:50;transition:right 0.25s var(--motion);box-shadow:-8px 0 28px rgba(0,0,0,0.4);}
+  .chat-area.open{right:0;}
+  .detail{overflow-y:auto;}
   .chat-msgs{min-height:0;flex:1 1 auto;padding:10px 12px;}
   .msg{max-width:96%;}
   .msg-c{font-size:12px;padding:8px 10px;}
@@ -362,7 +361,10 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
         </div>
       </div>
 
-      <!-- CHAT -->
+      <!-- DETAIL (center panel) -->
+      <div class="detail" id="detail"></div>
+
+      <!-- CHAT (right panel) -->
       <div class="chat-area" onclick="closeMobilePanels()">
         <div class="chat-msgs" id="chatMsgs"></div>
         <div class="composer hermes-composer">
@@ -392,10 +394,6 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
           </div>
         </div>
       </div>
-
-      <!-- DETAIL -->
-      <div class="detail hidden" id="detail"></div>
-    </div>
   </div>
 </div>
 
@@ -605,9 +603,7 @@ function switchSB(tab){S.sidebarTab=tab;document.querySelectorAll('.sidebar-tab'
 // ═══════════════════════════════════════════════
 function selectStock(sym){
   S.selectedStock=sym;renderWatchlist();renderPortfolio();renderDetail(sym);
-  document.getElementById('mainLayout').classList.add('has-detail');
-  const d=document.getElementById('detail');d.classList.remove('hidden');
-  if(window.innerWidth<=768)d.classList.add('open');
+  if(window.innerWidth<=768)document.getElementById('detail').classList.add('open');
 }
 async function selectPortfolioStock(sym){
   let s=S.watchlist.find(w=>w.symbol===sym);
@@ -625,8 +621,7 @@ async function selectPortfolioStock(sym){
 }
 function closeDetail(){
   S.selectedStock=null;renderWatchlist();renderPortfolio();
-  document.getElementById('detail').classList.add('hidden');
-  document.getElementById('mainLayout').classList.remove('has-detail');
+  document.getElementById('detail').innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--tds-text-subtle);font-family:var(--font-display);font-size:14px;text-transform:uppercase;letter-spacing:0.04em">Select a stock to analyze</div>';
   if(window.innerWidth<=768)document.getElementById('detail').classList.remove('open');
 }
 
