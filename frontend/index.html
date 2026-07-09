@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
 <title>THermes — Agentic Trading</title>
 <style>
 /* ===== SCANIA TEGEL DESIGN SYSTEM ===== */
@@ -738,28 +739,21 @@ function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe
 
 async function loadChart(s){
   document.getElementById('chartStatus').textContent='Loading…';
-  if(!window.lightweight){loadLW(s);return;}
+  if(window.lwChart){window.lwChart.remove();window.lwChart=null;window.lwSeries=null;}
+  const c=document.getElementById('lwChart');if(!c)return;
+  if(!window.LightweightCharts){document.getElementById('chartStatus').textContent='Chart library not loaded';return;}
+  window.lwChart=LightweightCharts.createChart(c,{width:c.clientWidth,height:320,layout:{background:{color:'#15181D'},textColor:'#AAC9F6'},grid:{vertLines:{color:'rgba(58,81,124,0.15)'},horzLines:{color:'rgba(58,81,124,0.15)'}},crosshair:{mode:0},rightPriceScale:{borderColor:'rgba(58,81,124,0.4)'},timeScale:{borderColor:'rgba(58,81,124,0.4)',timeVisible:true}});
+  window.lwSeries=window.lwChart.addCandlestickSeries({upColor:'#65BDA5',downColor:'#EA4851',borderUpColor:'#65BDA5',borderDownColor:'#EA4851',wickUpColor:'#65BDA5',wickDownColor:'#EA4851'});
   try{
     const d=await api(`/market/intraday/${encodeURIComponent(s.symbol)}?tf=${encodeURIComponent(S.chartTf)}`);
     const candles=(d.candles||[]).map(c=>({time:c.t||0,open:Number(c.o||c.open),high:Number(c.h||c.high),low:Number(c.l||c.low),close:Number(c.c||c.close)})).filter(c=>c.close>0);
     if(candles.length<1){document.getElementById('chartStatus').textContent='No candle data';return;}
-    if(window.lwSeries){window.lwSeries.setData(candles);window.lwChart.timeScale().fitContent();}
-    document.getElementById('chartStatus').textContent=`${d.source||'yahoo'} · ${d.live?'live':'delayed'} · ${candles.length} candles`;
+    window.lwSeries.setData(candles);window.lwChart.timeScale().fitContent();
+    document.getElementById('chartStatus').textContent=`${d.source||'yahoo'} · ${candles.length} candles`;
   }catch(e){document.getElementById('chartStatus').textContent='Chart fetch failed';}
 }
-function loadLW(s){
-  const script=document.createElement('script');
-  script.src='https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js';
-  script.onload=()=>{initLW(s);};
-  document.head.appendChild(script);
-}
-function initLW(s){if(window.lwChart){window.lwChart.remove();window.lwChart=null;window.lwSeries=null;}
-  const c=document.getElementById('lwChart');if(!c)return;
-  window.lightweight=true;
-  window.lwChart=LightweightCharts.createChart(c,{width:c.clientWidth,height:320,layout:{background:{color:'#15181D'},textColor:'#AAC9F6'},grid:{vertLines:{color:'rgba(58,81,124,0.15)'},horzLines:{color:'rgba(58,81,124,0.15)'}},crosshair:{mode:0},rightPriceScale:{borderColor:'rgba(58,81,124,0.4)'},timeScale:{borderColor:'rgba(58,81,124,0.4)',timeVisible:true}});
-  window.lwSeries=window.lwChart.addCandlestickSeries({upColor:'#65BDA5',downColor:'#EA4851',borderUpColor:'#65BDA5',borderDownColor:'#EA4851',wickUpColor:'#65BDA5',wickDownColor:'#EA4851'});
-  loadChart(s);
-}
+function loadLW(s){} // no-op — script loaded in head
+function initLW(s){} // no-op
 function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)renderDetail(s.symbol);}
 function loadChart(s){} // no-op — iframe handles loading
 
