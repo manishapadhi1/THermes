@@ -174,7 +174,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
 .senti-bar .bear{background:var(--tds-danger);}
 
 /* CHART CANVAS */
-.chart-c{width:100%;height:180px;}
+.chart-c{width:100%;height:280px;}
 
 /* TRADE FORM */
 .tf-row{display:flex;gap:8px;margin-bottom:8px;}
@@ -733,7 +733,7 @@ function switchDT(tab){
 // ═══════════════════════════════════════════════
 // CHART
 // ═══════════════════════════════════════════════
-function renderChart(s){const tf=['1m','5m','15m','1h','1d','1mo','6mo','1y','5y','all'];return`<div class="card"><h4>Chart — ${s.symbol} <span id="tfLabel" style="color:var(--tds-text-subtle);font-size:9px">${S.chartTf}</span></h4><div class="timeframe-row">${tf.map(x=>`<button class="timeframe-btn ${x===S.chartTf?'active':''}" onclick="setTimeframe(this,'${x}')">${x}</button>`).join('')}</div><canvas class="chart-c" id="miniChart" width="340" height="180"></canvas><div id="chartStatus" style="font-size:9px;color:var(--tds-text-subtle);margin-top:4px">Loading candles…</div><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--tds-text-subtle);margin-top:4px"><span>Start</span><span>Mid</span><span>Now</span></div></div><div class="card"><h4>Key Stats</h4>${[['Open','₹'+s.o.toFixed(s.o<100?2:0)],['High','₹'+s.h.toFixed(s.h<100?2:0)],['Low','₹'+s.l.toFixed(s.l<100?2:0)],['Prev Close','₹'+s.pc.toFixed(s.pc<100?2:0)],['Volume',(s.vol/100000).toFixed(2)+'L'],['Avg Vol',(s.avgVol/100000).toFixed(2)+'L'],['P/E',s.pe],['Mkt Cap','₹'+(s.mcap/1000).toFixed(0)+'K Cr']].map(([l,v])=>`<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`).join('')}</div>`;}
+function renderChart(s){const tf=['1m','5m','15m','1h','1d','1mo','6mo','1y','5y','all'];return`<div class="card"><h4>Chart — ${s.symbol} <span id="tfLabel" style="color:var(--tds-text-subtle);font-size:9px">${S.chartTf}</span></h4><div class="timeframe-row">${tf.map(x=>`<button class="timeframe-btn ${x===S.chartTf?'active':''}" onclick="setTimeframe(this,'${x}')">${x}</button>`).join('')}</div><canvas class="chart-c" id="miniChart" width="680" height="280"></canvas><div id="chartStatus" style="font-size:9px;color:var(--tds-text-subtle);margin-top:4px">Loading candles…</div></div><div class="card"><h4>Key Stats</h4>${[['Open','₹'+s.o.toFixed(s.o<100?2:0)],['High','₹'+s.h.toFixed(s.h<100?2:0)],['Low','₹'+s.l.toFixed(s.l<100?2:0)],['Prev Close','₹'+s.pc.toFixed(s.pc<100?2:0)],['Volume',(s.vol/100000).toFixed(2)+'L'],['Avg Vol',(s.avgVol/100000).toFixed(2)+'L'],['P/E',s.pe&&s.pe!==0?s.pe:'N/A'],['Mkt Cap','₹'+(s.mcap/1000).toFixed(0)+'K Cr']].map(([l,v])=>`<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`).join('')}</div>`;}
 function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const lab=document.getElementById('tfLabel');if(lab)lab.textContent=tf;const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)loadChart(s);}
 
 async function loadChart(s){
@@ -751,19 +751,81 @@ async function loadChart(s){
 
 function drawChart(s,candles=[]){
   const canvas=document.getElementById('miniChart');if(!canvas)return;
-  const ctx=canvas.getContext('2d');const W=canvas.width,H=canvas.height,pad={t:10,r:10,b:20,l:40},pw=W-pad.l-pad.r,ph=H-pad.t-pad.b;
-  let pts=(candles||[]).map(c=>Number(c.c ?? c.close)).filter(x=>Number.isFinite(x));
-  if(!pts.length){pts=[s.pc,s.o,s.h,s.ltp,s.l];}
-  if(pts.length===1){pts=[pts[0]*0.999,pts[0],pts[0]*1.001];}
-  const n=pts.length;
-  const minP=Math.min(...pts),maxP=Math.max(...pts);
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height;
+  const pad={t:15,r:15,b:30,l:60};
+  const pw=W-pad.l-pad.r,ph=H-pad.t-pad.b;
+
+  // Use real OHLC candle data if available
+  const bars=(candles||[]).map(c=>({
+    o:Number(c.o??c.open),h:Number(c.h??c.high),l:Number(c.l??c.low),c:Number(c.c??c.close),
+    t:c.t?new Date(c.t*1000):null
+  })).filter(b=>Number.isFinite(b.c));
+  
+  if(!bars.length){ctx.clearRect(0,0,W,H);ctx.fillStyle='#AAC9F6';ctx.font='12px sans-serif';ctx.textAlign='center';ctx.fillText('No candle data',W/2,H/2);return;}
+  
+  const n=bars.length;
+  const allVals=bars.flatMap(b=>[b.h,b.l]);
+  const minP=Math.min(...allVals)*0.999;
+  const maxP=Math.max(...allVals)*1.001;
   const yS=v=>pad.t+ph*(1-(v-minP)/(maxP-minP||1));
-  ctx.clearRect(0,0,W,H);ctx.strokeStyle='rgba(58,81,124,0.2)';ctx.lineWidth=0.5;
-  for(let i=0;i<=4;i++){const y=pad.t+(ph/4)*i;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();ctx.fillStyle='#AAC9F6';ctx.font='9px sans-serif';ctx.fillText('₹'+(maxP-((maxP-minP)/4)*i).toFixed(1),2,y+3);}
-  const isUp=s.ltp>=s.o;ctx.strokeStyle=isUp?'#65BDA5':'#EA4851';ctx.lineWidth=1.5;ctx.beginPath();
-  for(let i=0;i<pts.length;i++){const x=pad.l+(pw/(n-1))*i,y=yS(pts[i]);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
-  ctx.stroke();ctx.lineTo(pad.l+pw,pad.t+ph);ctx.lineTo(pad.l,pad.t+ph);ctx.closePath();
-  const g=ctx.createLinearGradient(0,pad.t,0,pad.t+ph);g.addColorStop(0,isUp?'rgba(101,189,165,0.18)':'rgba(234,72,81,0.15)');g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.fill();
+
+  // Clear
+  ctx.clearRect(0,0,W,H);
+
+  // Grid
+  const gridLines=5;
+  ctx.strokeStyle='rgba(58,81,124,0.15)';ctx.lineWidth=0.5;
+  for(let i=0;i<=gridLines;i++){
+    const y=pad.t+(ph/gridLines)*i;
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
+    const price=maxP-((maxP-minP)/gridLines)*i;
+    ctx.fillStyle='#AAC9F6';ctx.font='9px sans-serif';ctx.textAlign='right';
+    ctx.fillText('₹'+price.toFixed(price<10?2:price<100?1:0),pad.l-4,y+3);
+  }
+
+  // Candlestick bars
+  const barW=Math.max(2,Math.min(12,(pw/n)*0.6));
+  const gap=(pw/n)*0.4;
+  
+  for(let i=0;i<n;i++){
+    const b=bars[i];
+    const x=pad.l+(pw/(n-1))*i-(barW/2);
+    const isUp=b.c>=b.o;
+    const color=isUp?'#65BDA5':'#EA4851';
+    
+    // Wick (high-low line)
+    ctx.strokeStyle=color;ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.moveTo(x+barW/2,yS(b.h));
+    ctx.lineTo(x+barW/2,yS(b.l));
+    ctx.stroke();
+
+    // Body (open-close rect)
+    const bodyTop=yS(Math.max(b.o,b.c));
+    const bodyH=Math.max(1,Math.abs(yS(b.o)-yS(b.c)));
+    ctx.fillStyle=isUp?'#65BDA5':'#EA4851';
+    ctx.fillRect(x,bodyTop,barW,bodyH);
+  }
+
+  // Time labels
+  const labelCount=Math.min(6,n);
+  ctx.fillStyle='#AAC9F6';ctx.font='8px sans-serif';ctx.textAlign='center';
+  for(let i=0;i<=labelCount;i++){
+    const idx=Math.floor(i*(n-1)/Math.max(labelCount,1));
+    const b=bars[idx];
+    const x=pad.l+(pw/(n-1))*idx;
+    let label='';
+    if(b.t){
+      const d=b.t;
+      if(S.chartTf==='1d'||S.chartTf==='1mo'||S.chartTf==='6mo'||S.chartTf==='1y'||S.chartTf==='5y'||S.chartTf==='all'){
+        label=d.getDate()+'/'+(d.getMonth()+1);
+      }else{
+        label=d.getHours()+':'+String(d.getMinutes()).padStart(2,'0');
+      }
+    }else{label='#'+idx;}
+    ctx.fillText(label,x,H-pad.b+14);
+  }
 }
 
 // ═══════════════════════════════════════════════
