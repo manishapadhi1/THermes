@@ -734,26 +734,9 @@ function switchDT(tab){
 // ═══════════════════════════════════════════════
 // CHART
 // ═══════════════════════════════════════════════
-function renderChart(s){const tf=['1','5','15','60','D','W','M'];const labels={1:'1m',5:'5m',15:'15m',60:'1h',D:'1d',W:'1w',M:'1mo'};return`<div class="card"><h4>Chart — ${s.symbol} <span id="tfLabel" style="color:var(--tds-text-subtle);font-size:9px">${labels[S.chartTf]||S.chartTf}</span></h4><div class="timeframe-row">${tf.map(x=>`<button class="timeframe-btn ${x===S.chartTf?'active':''}" onclick="setTimeframe(this,'${x}')">${labels[x]||x}</button>`).join('')}</div><div id="lwChart" style="width:100%;height:320px"></div><div id="chartStatus" style="font-size:9px;color:var(--tds-text-subtle);margin-top:4px">Loading chart…</div></div><div class="card"><h4>Key Stats</h4>${[['Open','₹'+s.o.toFixed(s.o<100?2:0)],['High','₹'+s.h.toFixed(s.h<100?2:0)],['Low','₹'+s.l.toFixed(s.l<100?2:0)],['Prev Close','₹'+s.pc.toFixed(s.pc<100?2:0)],['Volume',(s.vol/100000).toFixed(2)+'L'],['Avg Vol',(s.avgVol/100000).toFixed(2)+'L'],['P/E',s.pe&&s.pe!==0?s.pe:'N/A'],['Mkt Cap','₹'+(s.mcap/1000).toFixed(0)+'K Cr']].map(([l,v])=>`<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`).join('')}</div>`;}
-function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const lab=document.getElementById('tfLabel');if(lab)lab.textContent=tf;const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)loadChart(s);}
-
-async function loadChart(s){
-  const statusEl=document.getElementById('chartStatus');if(statusEl)statusEl.textContent='Loading…';
-  // Clean up previous chart
-  try{if(window.lwChart){window.lwChart.remove();}}catch(e){}
-  window.lwChart=null;window.lwSeries=null;
-  const c=document.getElementById('lwChart');if(!c){if(statusEl)statusEl.textContent='Chart container not found';return;}
-  if(!window.LightweightCharts||!LightweightCharts.createChart){if(statusEl)statusEl.textContent='Chart library not loaded';return;}
-  try{
-    window.lwChart=LightweightCharts.createChart(c,{width:c.clientWidth||600,height:300,layout:{background:{color:'#15181D'},textColor:'#AAC9F6'},grid:{vertLines:{color:'rgba(58,81,124,0.15)'},horzLines:{color:'rgba(58,81,124,0.15)'}},crosshair:{mode:0},rightPriceScale:{borderColor:'rgba(58,81,124,0.4)'},timeScale:{borderColor:'rgba(58,81,124,0.4)',timeVisible:true}});
-    window.lwSeries=window.lwChart.addCandlestickSeries({upColor:'#65BDA5',downColor:'#EA4851',borderUpColor:'#65BDA5',borderDownColor:'#EA4851',wickUpColor:'#65BDA5',wickDownColor:'#EA4851'});
-    const d=await api(`/market/intraday/${encodeURIComponent(s.symbol)}?tf=${encodeURIComponent(S.chartTf)}`);
-    const candles=(d.candles||[]).map(c=>({time:c.t||0,open:Number(c.o||c.open),high:Number(c.h||c.high),low:Number(c.l||c.low),close:Number(c.c||c.close)})).filter(c=>c.close>0);
-    if(candles.length<1){if(statusEl)statusEl.textContent='No candle data';return;}
-    window.lwSeries.setData(candles);window.lwChart.timeScale().fitContent();
-    if(statusEl)statusEl.textContent=`${d.source||'yahoo'} · ${candles.length} candles`;
-  }catch(e){if(statusEl)statusEl.textContent='Chart error: '+e.message;}
-}
+function renderChart(s){const tf=['1','5','15','60','D','W','M'];const labels={1:'1m',5:'5m',15:'15m',60:'1h',D:'1d',W:'1w',M:'1mo'};const sym=s.symbol.replace('&','%26');return`<div class="card"><h4>Chart — ${s.symbol}</h4><div class="timeframe-row">${tf.map(x=>`<button class="timeframe-btn ${x===S.chartTf?'active':''}" onclick="setTimeframe(this,'${x}')">${labels[x]||x}</button>`).join('')}</div><iframe id="chartFrame" src="about:blank" data-src="https://s.tradingview.com/embed-widget/mini-symbol-overview/?symbol=NSE%3A${sym}&interval=${S.chartTf||'15'}&theme=dark&width=100%25&height=320&locale=in" style="width:100%;height:320px;border:0;border-radius:4px" onload="this.style.height=this.contentWindow.document.body.scrollHeight+'px'"></iframe><div id="chartStatus" style="font-size:9px;color:var(--tds-text-subtle);margin-top:4px">Loading chart…</div></div><div class="card"><h4>Key Stats</h4>${[['Open','₹'+s.o.toFixed(s.o<100?2:0)],['High','₹'+s.h.toFixed(s.h<100?2:0)],['Low','₹'+s.l.toFixed(s.l<100?2:0)],['Prev Close','₹'+s.pc.toFixed(s.pc<100?2:0)],['Volume',(s.vol/100000).toFixed(2)+'L'],['Avg Vol',(s.avgVol/100000).toFixed(2)+'L'],['P/E',s.pe&&s.pe!==0?s.pe:'N/A'],['Mkt Cap','₹'+(s.mcap/1000).toFixed(0)+'K Cr']].map(([l,v])=>`<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`).join('')}</div>`;}
+function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const f=document.getElementById('chartFrame');if(f){const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)f.src=`https://s.tradingview.com/embed-widget/mini-symbol-overview/?symbol=NSE%3A${s.symbol}&interval=${tf}&theme=dark&width=100%25&height=320&locale=in`;}}
+function loadChart(s){const f=document.getElementById('chartFrame');if(f&&s){f.src=`https://s.tradingview.com/embed-widget/mini-symbol-overview/?symbol=NSE%3A${s.symbol}&interval=${S.chartTf||'15'}&theme=dark&width=100%25&height=320&locale=in`;document.getElementById('chartStatus').textContent='TradingView · NSE:'+s.symbol;}}
 function loadLW(s){} // no-op — script loaded in head
 function initLW(s){} // no-op
 function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)renderDetail(s.symbol);}
