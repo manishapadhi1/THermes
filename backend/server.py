@@ -123,16 +123,16 @@ async def yahoo_search(q: str) -> List[Dict[str, Any]]:
 def timeframe_to_yahoo(tf: str) -> tuple[str, str]:
     return {
         "1m": ("1d", "1m"),
-        "5m": ("5d", "5m"),
-        "15m": ("5d", "15m"),
-        "1h": ("1mo", "60m"),
-        "1d": ("6mo", "1d"),
-        "1mo": ("2y", "1mo"),
-        "6mo": ("5y", "1mo"),
-        "1y": ("5y", "1mo"),
-        "5y": ("10y", "3mo"),
-        "all": ("max", "3mo"),
-    }.get(tf, ("1d", "1m"))
+        "5m": ("1d", "5m"),
+        "15m": ("1d", "15m"),
+        "1h": ("5d", "60m"),
+        "1d": ("1d", "5m"),       # 1 day view: today only, 5-min candles
+        "1mo": ("1mo", "1h"),     # 1 month view: hourly
+        "6mo": ("6mo", "1d"),     # 6 month view: daily
+        "1y": ("1y", "1d"),       # 1 year view: daily
+        "5y": ("5y", "1wk"),      # 5 year view: weekly
+        "all": ("max", "1mo"),    # All time: monthly
+    }.get(tf, ("1d", "5m"))
 
 async def yahoo_candles(symbol: str, tf: str) -> Optional[List[Dict[str, Any]]]:
     rng, interval = timeframe_to_yahoo(tf)
@@ -1277,11 +1277,11 @@ async def get_recommendations(symbol: str, agent: str = "careful"):
 
 # Multi-timeframe recommendation engine
 TIMEFRAME_CONFIG = {
-    "5m":  {"tf": "5m",  "label": "5 Minutes",   "stop_pct": 0.008, "target_pct": 0.015, "rsi_buy": 35, "rsi_sell": 70},
-    "15m": {"tf": "15m", "label": "15 Minutes",  "stop_pct": 0.012, "target_pct": 0.022, "rsi_buy": 32, "rsi_sell": 72},
-    "1h":  {"tf": "1h",  "label": "1 Hour",      "stop_pct": 0.020, "target_pct": 0.040, "rsi_buy": 30, "rsi_sell": 75},
-    "6h":  {"tf": "1d",  "label": "6 Hours",     "stop_pct": 0.035, "target_pct": 0.060, "rsi_buy": 28, "rsi_sell": 78},
-    "1d":  {"tf": "1d",  "label": "1 Day",       "stop_pct": 0.050, "target_pct": 0.080, "rsi_buy": 25, "rsi_sell": 80},
+    "5m":  {"tf": "1d", "label": "5 Minutes",   "stop_pct": 0.003, "target_pct": 0.005, "rsi_buy": 30, "rsi_sell": 75},
+    "15m": {"tf": "1d", "label": "15 Minutes",  "stop_pct": 0.005, "target_pct": 0.008, "rsi_buy": 30, "rsi_sell": 75},
+    "1h":  {"tf": "5d", "label": "1 Hour",      "stop_pct": 0.008, "target_pct": 0.015, "rsi_buy": 28, "rsi_sell": 78},
+    "6h":  {"tf": "5d", "label": "6 Hours",     "stop_pct": 0.015, "target_pct": 0.025, "rsi_buy": 25, "rsi_sell": 80},
+    "1d":  {"tf": "1mo","label": "1 Day",       "stop_pct": 0.020, "target_pct": 0.040, "rsi_buy": 25, "rsi_sell": 80},
 }
 
 @app.get("/api/recommendations/multi/{symbol}")

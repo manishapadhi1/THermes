@@ -776,17 +776,18 @@ function drawChart(s,candles=[]){
   // Grid
   const gridLines=5;
   ctx.strokeStyle='rgba(58,81,124,0.15)';ctx.lineWidth=0.5;
+  ctx.fillStyle='#AAC9F6';ctx.font='10px "Scania Sans",-apple-system,sans-serif';ctx.textBaseline='middle';
   for(let i=0;i<=gridLines;i++){
     const y=pad.t+(ph/gridLines)*i;
     ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
     const price=maxP-((maxP-minP)/gridLines)*i;
-    ctx.fillStyle='#AAC9F6';ctx.font='9px sans-serif';ctx.textAlign='right';
-    ctx.fillText('₹'+price.toFixed(price<10?2:price<100?1:0),pad.l-4,y+3);
+    ctx.textAlign='right';
+    ctx.fillText('₹'+price.toFixed(price<10?2:price<100?1:0),pad.l-5,y);
   }
 
   // Candlestick bars
   const barW=Math.max(2,Math.min(12,(pw/n)*0.6));
-  const gap=(pw/n)*0.4;
+  ctx.shadowBlur=0; // ensure no shadow artifacts on bars
   
   for(let i=0;i<n;i++){
     const b=bars[i];
@@ -794,14 +795,14 @@ function drawChart(s,candles=[]){
     const isUp=b.c>=b.o;
     const color=isUp?'#65BDA5':'#EA4851';
     
-    // Wick (high-low line)
+    // Wick
     ctx.strokeStyle=color;ctx.lineWidth=1;
     ctx.beginPath();
     ctx.moveTo(x+barW/2,yS(b.h));
     ctx.lineTo(x+barW/2,yS(b.l));
     ctx.stroke();
 
-    // Body (open-close rect)
+    // Body
     const bodyTop=yS(Math.max(b.o,b.c));
     const bodyH=Math.max(1,Math.abs(yS(b.o)-yS(b.c)));
     ctx.fillStyle=isUp?'#65BDA5':'#EA4851';
@@ -810,9 +811,9 @@ function drawChart(s,candles=[]){
 
   // Time labels
   const labelCount=Math.min(6,n);
-  ctx.fillStyle='#AAC9F6';ctx.font='8px sans-serif';ctx.textAlign='center';
+  ctx.fillStyle='#AAC9F6';ctx.font='9px "Scania Sans",-apple-system,sans-serif';ctx.textAlign='center';ctx.textBaseline='top';
   for(let i=0;i<=labelCount;i++){
-    const idx=Math.floor(i*(n-1)/Math.max(labelCount,1));
+    const idx=Math.min(Math.floor(i*(n-1)/Math.max(labelCount,1)),n-1);
     const b=bars[idx];
     const x=pad.l+(pw/(n-1))*idx;
     let label='';
@@ -824,7 +825,7 @@ function drawChart(s,candles=[]){
         label=d.getHours()+':'+String(d.getMinutes()).padStart(2,'0');
       }
     }else{label='#'+idx;}
-    ctx.fillText(label,x,H-pad.b+14);
+    ctx.fillText(label,x,H-pad.b+12);
   }
 }
 
