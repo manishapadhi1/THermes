@@ -755,7 +755,8 @@ async function loadChart(s){
 function loadLW(s){} // no-op — script loaded in head
 function initLW(s){} // no-op
 function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)renderDetail(s.symbol);}
-function loadChart(s){} // no-op — iframe handles loading
+function loadLW(s){} // no-op — script loaded in head
+function initLW(s){} // no-op
 
 // ═══════════════════════════════════════════════
 // ORDER BOOK
