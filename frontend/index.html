@@ -333,7 +333,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
     <div class="logo"><span>TH</span>ermes</div>
     <div class="sep"></div>
     <select id="modelSelect" onchange="changeModel(this.value)" style="display:none"><option value="">Loading…</option></select>
-    <div class="acct">A/C <strong>XK8892</strong></div>
+    <div class="acct" id="acctDisplay">A/C <strong>—</strong></div>
     <button class="settings-btn" id="settingsBtn" onclick="openSettings('marketdata')" title="Settings">⚙</button>
     <span class="acct" id="hermesStatus" style="display:none"></span>
   </div>
@@ -365,7 +365,7 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
       <div class="chat-area" onclick="closeMobilePanels()">
         <div class="chat-msgs" id="chatMsgs"></div>
         <div class="composer hermes-composer">
-          <textarea class="c-input hermes-input" id="cInput" placeholder="Message Scania Bot..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg();}"></textarea>
+          <textarea class="c-input hermes-input" id="cInput" placeholder="Message THermes Agent..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg();}"></textarea>
           <div class="composer-toolbar">
             <div class="composer-icons">
               <button class="composer-icon" onclick="openFilePicker()" title="Attach">📎</button>
@@ -432,13 +432,15 @@ async function init(){
   statusEl.textContent = 'Connecting…';
   try{
     await loadEnriched();
-    const[wl,idx,pf,status,models,settings]=await Promise.all([
+    const[wl,idx,pf,status,models,settings,brokers]=await Promise.all([
       api('/market/watchlist'),api('/market/indices'),api('/trade/portfolio'),api('/market/status'),
-      api('/models'),api('/settings')
+      api('/models'),api('/settings'),api('/brokers')
     ]);
     S.watchlist=mergeEnriched(wl);S.indices=idx;S.portfolio=pf;
     S.marketStatus=status;
     S.models=models;S.settings=settings;
+    // Store broker user for display
+    if(brokers?.zerodha?.user_id)S._brokerUser=brokers.zerodha.user_id;
     const provCount=models.groups?.length||0;
     statusEl.innerHTML=`<span class="dot"></span>Hermes (${provCount} providers)`;
   }catch(e){
@@ -448,6 +450,7 @@ async function init(){
   }
   buildModelSelect();
   renderMarketBar();renderWatchlist();renderPortfolio();renderIndices();
+  updateAccountDisplay();
   welcomeMsg();
   setTimeout(()=>selectStock('NIITMTS'),800);
   setTimeout(()=>autoEnrichPortfolio(),1500);
@@ -550,6 +553,16 @@ function enqueueEnrichment(symbol,force=false){symbol=String(symbol||'').toUpper
 async function processEnrichQueue(){if(enrichBusy)return;const job=enrichQueue.shift();if(!job)return;enrichBusy=true;try{await runEnrichment(job.symbol,{silent:true,force:job.force});}catch(e){console.warn('auto enrichment failed',job.symbol,e);}finally{enrichBusy=false;if(enrichQueue.length)setTimeout(processEnrichQueue,1200);}}
 function autoEnrichPortfolio(){(S.portfolio.holdings||[]).forEach(h=>enqueueEnrichment(h.symbol,false));}
 
+function updateAccountDisplay(){
+  const el=document.getElementById('acctDisplay');
+  const routing=document.getElementById('tradeRouting');
+  const broker=S.marketStatus?.broker_source;
+  const user=(broker==='zerodha'&&S._brokerUser)?S._brokerUser:'—';
+  const label=broker?`${broker==='zerodha'?'Kite':broker} (${user})`:'—';
+  if(el)el.innerHTML=`A/C <strong>${esc(label)}</strong>`;
+  if(routing)routing.textContent=`Routed via ${broker==='zerodha'?'Zerodha Kite':'Paper Trading'} · A/C ${user}`;
+}
+
 async function autoRefreshAnalysis(includeFundamentals=false){
   // Refresh analysis for all watchlist stocks (lightweight: technicals + sentiment)
   // If includeFundamentals, also scrape screener.in
@@ -577,7 +590,7 @@ async function refreshMarketData(){
   try{
     refreshCount++;
     const [wl,status,pf]=await Promise.all([api('/market/watchlist'),api('/market/status'),api('/trade/portfolio')]);
-    S.watchlist=mergeEnriched(wl);S.marketStatus=status;S.portfolio={...S.portfolio,...pf};renderWatchlist();renderPortfolio();renderMarketBar();autoEnrichPortfolio();
+    S.watchlist=mergeEnriched(wl);S.marketStatus=status;S.portfolio={...S.portfolio,...pf};renderWatchlist();renderPortfolio();renderMarketBar();updateAccountDisplay();autoEnrichPortfolio();
     // Every 20s: refresh technicals + sentiment + fundamentals for all watchlist stocks
     autoRefreshAnalysis(true);
     if(S.selectedStock){const updated=S.watchlist.find(x=>x.symbol===S.selectedStock);if(updated&&S.detailTab==='chart') { renderDetail(S.selectedStock); }}
@@ -834,7 +847,7 @@ function renderTrade(s,h){
   <div class="tf-row"><div class="tf-field"><label>Price (₹)</label><input type="number" id="tradePrice" value="${s.ltp.toFixed(2)}" step="0.05"></div><div class="tf-field"><label>Qty</label><input type="number" id="tradeQty" value="${dq}" min="1"></div></div>
   <div style="padding:8px 0;font-size:11px;color:var(--tds-text-subtle);border-top:1px solid rgba(58,81,124,0.2);margin-bottom:8px">Est. Value: <strong style="color:var(--tds-text-strong)" id="estValue">₹${(s.ltp*dq).toLocaleString()}</strong></div>
   <button class="trade-btn buy-btn" id="tradeBtn" onclick="placeOrder('${s.symbol}')">PLACE BUY ORDER</button>
-  <div style="margin-top:6px;font-size:9px;color:var(--tds-text-subtle);text-align:center">Routed via Zerodha Kite · A/C XK8892</div></div>`;
+  <div style="margin-top:6px;font-size:9px;color:var(--tds-text-subtle);text-align:center" id="tradeRouting">Routed via Paper Trading · A/C —</div></div>`;
 }
 
 async function placeOrder(sym){
