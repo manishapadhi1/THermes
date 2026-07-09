@@ -567,9 +567,8 @@ async def get_market_providers():
     return {
         "active": state_market_provider(),
         "providers": [
-            {"id": "angel_one", "name": "Angel One SmartAPI", "free": False, "live": True, "note": "Requires Angel One account. Live quotes, candles, depth, orders via SmartAPI."},
-            {"id": "yahoo", "name": "Yahoo Finance", "free": True, "live": False, "note": "Free, usually delayed. Supports NSE symbols via .NS."},
-            {"id": "nse_public", "name": "NSE public endpoints", "free": True, "live": False, "note": "Unofficial, may rate-limit/block; best effort only."},
+            {"id": "yahoo", "name": "Yahoo Finance", "free": True, "live": False, "note": "Free, usually delayed. Works without API keys."},
+            {"id": "angel_one", "name": "Angel One SmartAPI", "free": False, "live": True, "note": "Requires Angel One account. Live quotes, candles, depth."},
             {"id": "fallback", "name": "Static fallback", "free": True, "live": False, "note": "Bundled demo values only."},
         ]
     }
