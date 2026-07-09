@@ -1275,6 +1275,57 @@ async def get_recommendations(symbol: str, agent: str = "careful"):
                              "rev_growth": 18.2, "profit_growth": 3.2,
                              "debt_equity": 0.12, "promoter_holding": 34.1}}
 
+# Multi-timeframe recommendation engine
+TIMEFRAME_CONFIG = {
+    "5m":  {"tf": "5m",  "label": "5 Minutes",   "stop_pct": 0.008, "target_pct": 0.015, "rsi_buy": 35, "rsi_sell": 70},
+    "15m": {"tf": "15m", "label": "15 Minutes",  "stop_pct": 0.012, "target_pct": 0.022, "rsi_buy": 32, "rsi_sell": 72},
+    "1h":  {"tf": "1h",  "label": "1 Hour",      "stop_pct": 0.020, "target_pct": 0.040, "rsi_buy": 30, "rsi_sell": 75},
+    "6h":  {"tf": "1d",  "label": "6 Hours",     "stop_pct": 0.035, "target_pct": 0.060, "rsi_buy": 28, "rsi_sell": 78},
+    "1d":  {"tf": "1d",  "label": "1 Day",       "stop_pct": 0.050, "target_pct": 0.080, "rsi_buy": 25, "rsi_sell": 80},
+}
+
+@app.get("/api/recommendations/multi/{symbol}")
+async def multi_timeframe_recommendations(symbol: str):
+    sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+    results = {}
+    for key, cfg in TIMEFRAME_CONFIG.items():
+        candles = await yahoo_candles(sym, cfg["tf"])
+        tech = compute_technicals(sym, candles or [])
+        if not tech.get("success"):
+            results[key] = {"label": cfg["label"], "action": "HOLD", "entry": None, "reason": "No candle data"}
+            continue
+        rsi = tech.get("rsi", 50); macd = tech.get("macd", 0)
+        entry = tech.get("entry", 0)
+        buy = sell = 0
+        if rsi < cfg["rsi_buy"]: buy += 3
+        elif rsi > cfg["rsi_sell"]: sell += 3
+        elif rsi < 45: buy += 1
+        elif rsi > 60: sell += 1
+        if macd > 0: buy += 2
+        else: sell += 2
+        for p in tech.get("patterns", []):
+            if p["type"] == "bullish": buy += 2
+            elif p["type"] == "bearish": sell += 2
+        if buy > sell + 1:
+            action = "BUY"
+            stop = round(entry * (1 - cfg["stop_pct"]), 2) if entry else None
+            target = round(entry * (1 + cfg["target_pct"]), 2) if entry else None
+            reason = f"RSI {rsi} oversold, MACD bullish" if rsi < cfg["rsi_buy"] else "Bullish"
+        elif sell > buy + 1:
+            action = "SELL"
+            stop = round(entry * (1 + cfg["stop_pct"]), 2) if entry else None
+            target = round(entry * (1 - cfg["target_pct"]), 2) if entry else None
+            reason = f"RSI {rsi} overbought, MACD bearish" if rsi > cfg["rsi_sell"] else "Bearish"
+        else:
+            action = "HOLD"
+            stop = round(entry * 0.99, 2) if entry else None
+            target = round(entry * 1.015, 2) if entry else None
+            reason = "Neutral — wait"
+        results[key] = {"label": cfg["label"], "action": action, "entry": entry,
+                         "stop": stop, "target": target, "rsi": round(rsi, 1),
+                         "macd": round(macd, 4), "buy": buy, "sell": sell, "reason": reason}
+    return {"symbol": sym, "recommendations": results}
+
 # ─── Run ───────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn

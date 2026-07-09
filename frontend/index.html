@@ -708,6 +708,7 @@ function renderDetail(sym){
       <button class="d-tab${'technical'===currentTab?' active':''}" onclick="switchDT('technical')">TECHNICAL</button>
       <button class="d-tab${'fundamental'===currentTab?' active':''}" onclick="switchDT('fundamental')">FUNDAMENTAL</button>
       <button class="d-tab${'sentiment'===currentTab?' active':''}" onclick="switchDT('sentiment')">SENTIMENT</button>
+      <button class="d-tab${'recommendation'===currentTab?' active':''}" onclick="switchDT('recommendation')">RECOMMEND</button>
       <button class="d-tab${'trade'===currentTab?' active':''}" onclick="switchDT('trade')">${h?'TRADE':'BUY'}</button>
     </div>
     <div class="d-content" id="dContent"></div>`;
@@ -728,6 +729,7 @@ function switchDT(tab){
     case'technical':c.innerHTML=renderTechnical(s);break;
     case'fundamental':c.innerHTML=renderFundamental(s);break;
     case'sentiment':c.innerHTML=renderSentiment(s);break;
+    case'recommendation':c.innerHTML='<div class="card"><h4>Multi-Timeframe Recommendations</h4><div class="loading-inline"><span class="spinner"></span>Analyzing 5m/15m/1h/6h/1d…</div></div>';loadRecommendations(s);break;
     case'trade':c.innerHTML=renderTrade(s,h);break;
     default:c.innerHTML=renderChart(s);setTimeout(()=>loadChart(s),50);
   }
@@ -845,6 +847,36 @@ function renderSentiment(s){
   const se=s.sentiment||{bull:50,neutral:30,bear:20};
   return`<div class="card"><h4>Sentiment — ${s.symbol}</h4><div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-family:var(--font-display);font-size:20px;font-weight:700;color:${se.bull>50?'var(--tds-success)':'var(--tds-text-strong)'}">${se.bull}%</span><span style="color:${se.bull>50?'var(--tds-success)':'var(--tds-danger)'}">${se.bull>50?'🟢 BULLISH':se.bear>30?'🔴 BEARISH':'🟡 NEUTRAL'}</span></div><div class="senti-bar"><div class="bull" style="width:${se.bull}%"></div><div class="neut" style="width:${se.neutral}%"></div><div class="bear" style="width:${se.bear}%"></div></div><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--tds-text-subtle)"><span>Bullish ${se.bull}%</span><span>Neutral ${se.neutral}%</span><span>Bearish ${se.bear}%</span></div></div>
   <div class="card"><h4>News & Analyst</h4>${[['Analyst Consensus','Strong Buy','var(--tds-success)'],['12-Month Target','₹'+(s.ltp*1.52).toFixed(0),''],['Upside','+52%','var(--tds-success)']].map(([l,v,c])=>`<div class="row"><span class="lbl">${l}</span><span class="val" style="color:${c}">${v}</span></div>`).join('')}</div>`;
+}
+
+async function loadRecommendations(s){
+  const c=document.getElementById('dContent');
+  try{
+    const d=await api(`/recommendations/multi/${encodeURIComponent(s.symbol)}`);
+    c.innerHTML=renderRecommendations(s,d);
+  }catch(e){c.innerHTML=`<div class="card"><h4>Multi-Timeframe Recommendations</h4><div style="color:var(--tds-danger)">Failed: ${esc(e.message)}</div></div>`;}
+}
+function renderRecommendations(s,d){
+  const recs=d.recommendations||{};
+  const order=['5m','15m','1h','6h','1d'];
+  const colorMap={BUY:'var(--tds-success)',SELL:'var(--tds-danger)',HOLD:'var(--tds-warning)'};
+  const bgMap={BUY:'rgba(101,189,165,0.08)',SELL:'rgba(234,72,81,0.08)',HOLD:'rgba(241,194,27,0.06)'};
+  return `<div class="card"><h4>Multi-Timeframe Recommendations — ${s.symbol}</h4><div style="font-size:10px;color:var(--tds-text-subtle);margin-bottom:12px">Updated every 20s. Day-trading optimized.</div>`+
+    order.map(k=>{
+      const r=recs[k]||{label:k,action:'HOLD',entry:null,stop:null,target:null,rsi:'-',reason:'No data'};
+      return `<div style="background:${bgMap[r.action]};border:1px solid ${colorMap[r.action]};border-radius:6px;padding:10px 12px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <span style="font-family:var(--font-display);font-size:14px;font-weight:700;color:${colorMap[r.action]}">${r.label}</span>
+          <span style="font-family:var(--font-display);font-size:16px;font-weight:800;color:${colorMap[r.action]};padding:4px 12px;border:2px solid ${colorMap[r.action]};border-radius:4px">${r.action}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-family:var(--font-compact);font-size:11px">
+          ${r.entry?`<div><span style="color:var(--tds-text-subtle)">Entry</span><br><strong style="color:var(--tds-blue-light)">₹${Number(r.entry).toFixed(2)}</strong></div>`:'<div>—</div>'}
+          ${r.stop?`<div><span style="color:var(--tds-text-subtle)">Stop</span><br><strong style="color:var(--tds-danger)">₹${Number(r.stop).toFixed(2)}</strong></div>`:'<div>—</div>'}
+          ${r.target?`<div><span style="color:var(--tds-text-subtle)">Target</span><br><strong style="color:var(--tds-success)">₹${Number(r.target).toFixed(2)}</strong></div>`:'<div>—</div>'}
+        </div>
+        <div style="margin-top:6px;font-size:10px;color:var(--tds-text-subtle)">RSI ${r.rsi||'-'} · MACD ${r.macd||'-'} · ${r.reason||''}</div>
+      </div>`;
+    }).join('')+`</div>`;
 }
 
 // ═══════════════════════════════════════════════
