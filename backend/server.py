@@ -648,15 +648,36 @@ def compute_technicals(symbol: str, candles: List[Dict]) -> Dict[str, Any]:
     if body > range_val * 0.7 and upper_wick < range_val * 0.1 and lower_wick < range_val * 0.1:
         patterns.append({"name": "Marubozu — Strong move", "type": "bullish" if c > o else "bearish"})
 
-    # Recommendation
+    # Day-trading optimized recommendation
     buy_signals = 0
     sell_signals = 0
-    if rsi > 50 and rsi < 70: buy_signals += 1
-    elif rsi > 70: sell_signals += 1
+    # RSI: oversold=BUY, overbought=SELL
+    if 30 <= rsi <= 45: buy_signals += 2  # oversold bounce zone
+    elif 25 <= rsi < 30: buy_signals += 3  # deep oversold, strong reversal likely
+    elif rsi > 75: sell_signals += 3  # overbought, take profit
+    elif rsi > 65: sell_signals += 1
+    # MACD histogram direction
+    if macd_hist > 0: buy_signals += 2
+    else: sell_signals += 2
+    # Price vs MA (shorter MA for day trading)
     if current > ma50: buy_signals += 1
     else: sell_signals += 1
-    if macd_hist > 0: buy_signals += 1
-    else: sell_signals += 1
+    # Volume comparison (day trading: look for volume spikes)
+    avg_vol = sum(float(c.get("v", c.get("volume", 0))) for c in candles[-5:]) / 5 if candles else 0
+    recent_vol = float(candles[-1].get("v", candles[-1].get("volume", 0))) if candles else 0
+    if avg_vol > 0 and recent_vol > avg_vol * 1.5: buy_signals += 1  # volume spike
+    # Candlestick patterns
+    for p in patterns:
+        if p["type"] == "bullish": buy_signals += 2
+        elif p["type"] == "bearish": sell_signals += 2
+    # Day trading: entry at support, tight stops
+    # Use 15m candle levels for tighter ranges
+    recent_low = min(lows[-5:]) if len(lows) >= 5 else current * 0.99
+    recent_high = max(highs[-5:]) if len(highs) >= 5 else current * 1.01
+    entry = recent_low if recent_low < current else current * 0.995
+    max_buy = min(r1, recent_high)  # don't enter above recent high
+    target = min(r1, entry * 1.03) if entry > 0 else current * 1.02  # tighter day trade target
+    stop_loss = max(s2, entry * 0.985) if entry > 0 else current * 0.98  # tighter 1.5% stop
 
     return {
         "source": "computed",
@@ -753,8 +774,8 @@ async def enrich_symbol(symbol: str):
     # 1. Fundamental data from screener.in
     funda = await scrape_screener(sym)
 
-    # 2. Technical analysis from Yahoo candles
-    tf = "1d"
+    # 2. Technical analysis from Yahoo candles (day-trading optimized: 15m candles)
+    tf = "15m"
     candles_data = await yahoo_candles(sym, tf)
     tech = compute_technicals(sym, candles_data or [])
 
