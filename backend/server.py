@@ -1277,11 +1277,12 @@ async def get_recommendations(symbol: str, agent: str = "careful"):
 
 # Multi-timeframe recommendation engine
 TIMEFRAME_CONFIG = {
-    "5m":  {"tf": "1d", "label": "5 Minutes",   "risk_mult": 1.0, "reward_mult": 1.5},
-    "15m": {"tf": "1d", "label": "15 Minutes",  "risk_mult": 1.2, "reward_mult": 1.8},
-    "1h":  {"tf": "5d", "label": "1 Hour",      "risk_mult": 1.5, "reward_mult": 2.0},
-    "6h":  {"tf": "5d", "label": "6 Hours",     "risk_mult": 2.0, "reward_mult": 2.5},
-    "1d":  {"tf": "1mo","label": "1 Day",       "risk_mult": 2.5, "reward_mult": 3.0},
+    "5m":  {"tf": "1d", "label": "5 Minutes",   "risk_mult": 1.0, "reward_mult": 1.5, "target_style": "atr"},
+    "15m": {"tf": "1d", "label": "15 Minutes",  "risk_mult": 1.2, "reward_mult": 1.8, "target_style": "atr"},
+    "1h":  {"tf": "5d", "label": "1 Hour",      "risk_mult": 1.5, "reward_mult": 2.0, "target_style": "blend"},
+    "6h":  {"tf": "5d", "label": "6 Hours",     "risk_mult": 2.0, "reward_mult": 2.5, "target_style": "blend"},
+    "1d":  {"tf": "1mo","label": "1 Day",       "risk_mult": 2.5, "reward_mult": 3.0, "target_style": "blend"},
+    "6mo": {"tf": "1y", "label": "6 Months",    "risk_mult": 1.5, "reward_mult": 2.0, "target_style": "fundamental"},
 }
 
 def compute_atr(candles: List[Dict], period: int = 14) -> float:
@@ -1327,25 +1328,48 @@ async def multi_timeframe_recommendations(symbol: str):
             if p["type"] == "bullish": buy += 2
             elif p["type"] == "bearish": sell += 2
         
-        # Dynamic stop/target based on ATR
+        # Dynamic stop (ATR-based) + target (ATR + long-term potential blend)
         stop_dist = atr * cfg["risk_mult"]
         target_dist = atr * cfg["reward_mult"]
+        
+        # Get long-term potential target from fundamentals
+        lt_target = None
+        try:
+            f = await scrape_screener(sym)
+            if f.get("high52") and f.get("eps"):
+                fair = f["eps"] * 25 * 4  # annualized EPS * sector P/E
+                lt_target = round((f["high52"] + fair) / 2, 2)
+            elif f.get("high52"):
+                lt_target = round(f["high52"] * 0.75, 2)
+        except Exception:
+            pass
+        
+        # Compute target based on style
+        style = cfg.get("target_style", "atr")
+        if style == "atr":
+            final_target = round(entry + target_dist, 2) if entry else None
+        elif style == "blend":
+            atr_t = entry + target_dist if entry else current * 1.02
+            lt = lt_target or (atr_t * 1.5)
+            final_target = round(atr_t * 0.4 + lt * 0.6, 2)
+        else:  # fundamental — use long-term potential
+            final_target = lt_target or round(entry + target_dist * 3, 2) if entry else None
         
         if buy > sell + 1:
             action = "BUY"
             stop = round(entry - stop_dist, 2) if entry else None
-            target = round(entry + target_dist, 2) if entry else None
-            reason = f"RSI {rsi} oversold" if rsi < 32 else "Bullish"
+            target = final_target
+            reason = f"RSI {rsi} oversold" if rsi < 32 else f"Bullish — LT target ₹{lt_target}" if lt_target else "Bullish"
         elif sell > buy + 1:
             action = "SELL"
             stop = round(entry + stop_dist, 2) if entry else None
-            target = round(entry - target_dist, 2) if entry else None
+            target = final_target
             reason = f"RSI {rsi} overbought" if rsi > 72 else "Bearish"
         else:
             action = "HOLD"
             stop = round(entry - stop_dist, 2) if entry else None
-            target = round(entry + target_dist * 0.5, 2) if entry else None
-            reason = "Neutral — wait"
+            target = final_target
+            reason = f"Wait — LT target ₹{lt_target}" if lt_target else "Neutral — wait"
         results[key] = {"label": cfg["label"], "action": action, "entry": entry,
                          "stop": stop, "target": target, "rsi": round(rsi, 1),
                          "macd": round(macd, 4), "buy": buy, "sell": sell, "reason": reason}

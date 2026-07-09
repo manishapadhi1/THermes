@@ -916,7 +916,7 @@ async function loadRecommendations(s){
 }
 function renderRecommendations(s,d){
   const recs=d.recommendations||{};
-  const order=['5m','15m','1h','6h','1d'];
+  const order=['5m','15m','1h','6h','1d','6mo'];
   const colorMap={BUY:'var(--tds-success)',SELL:'var(--tds-danger)',HOLD:'var(--tds-warning)'};
   const bgMap={BUY:'rgba(101,189,165,0.08)',SELL:'rgba(234,72,81,0.08)',HOLD:'rgba(241,194,27,0.06)'};
   return `<div class="card"><h4>Multi-Timeframe Recommendations — ${s.symbol}</h4><div style="font-size:10px;color:var(--tds-text-subtle);margin-bottom:12px">Updated every 20s. Day-trading optimized.</div>`+
