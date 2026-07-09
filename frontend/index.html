@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
 <title>THermes — Agentic Trading</title>
 <style>
 /* ===== SCANIA TEGEL DESIGN SYSTEM ===== */
@@ -734,9 +733,43 @@ function switchDT(tab){
 // ═══════════════════════════════════════════════
 // CHART
 // ═══════════════════════════════════════════════
-function renderChart(s){const tf=['1','5','15','60','D','W','M'];const labels={1:'1m',5:'5m',15:'15m',60:'1h',D:'1d',W:'1w',M:'1mo'};const sym=s.symbol.replace('&','%26');return`<div class="card"><h4>Chart — ${s.symbol}</h4><div class="timeframe-row">${tf.map(x=>`<button class="timeframe-btn ${x===S.chartTf?'active':''}" onclick="setTimeframe(this,'${x}')">${labels[x]||x}</button>`).join('')}</div><iframe id="chartFrame" src="about:blank" data-src="https://s.tradingview.com/embed-widget/mini-symbol-overview/?symbol=NSE%3A${sym}&interval=${S.chartTf||'15'}&theme=dark&width=100%25&height=320&locale=in" style="width:100%;height:320px;border:0;border-radius:4px" onload="this.style.height=this.contentWindow.document.body.scrollHeight+'px'"></iframe><div id="chartStatus" style="font-size:9px;color:var(--tds-text-subtle);margin-top:4px">Loading chart…</div></div><div class="card"><h4>Key Stats</h4>${[['Open','₹'+s.o.toFixed(s.o<100?2:0)],['High','₹'+s.h.toFixed(s.h<100?2:0)],['Low','₹'+s.l.toFixed(s.l<100?2:0)],['Prev Close','₹'+s.pc.toFixed(s.pc<100?2:0)],['Volume',(s.vol/100000).toFixed(2)+'L'],['Avg Vol',(s.avgVol/100000).toFixed(2)+'L'],['P/E',s.pe&&s.pe!==0?s.pe:'N/A'],['Mkt Cap','₹'+(s.mcap/1000).toFixed(0)+'K Cr']].map(([l,v])=>`<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`).join('')}</div>`;}
-function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const f=document.getElementById('chartFrame');if(f){const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)f.src=`https://s.tradingview.com/embed-widget/mini-symbol-overview/?symbol=NSE%3A${s.symbol}&interval=${tf}&theme=dark&width=100%25&height=320&locale=in`;}}
-function loadChart(s){const f=document.getElementById('chartFrame');if(f&&s){f.src=`https://s.tradingview.com/embed-widget/mini-symbol-overview/?symbol=NSE%3A${s.symbol}&interval=${S.chartTf||'15'}&theme=dark&width=100%25&height=320&locale=in`;document.getElementById('chartStatus').textContent='TradingView · NSE:'+s.symbol;}}
+function renderChart(s){const tf=['1m','5m','15m','1h','1d','1mo'];return`<div class="card"><h4>Chart — ${s.symbol} <span id="tfLabel" style="color:var(--tds-text-subtle);font-size:9px">${S.chartTf||'15m'}</span></h4><div class="timeframe-row">${tf.map(x=>`<button class="timeframe-btn ${x===S.chartTf?'active':''}" onclick="setTimeframe(this,'${x}')">${x}</button>`).join('')}</div><canvas class="chart-c" id="miniChart" width="680" height="280"></canvas><div id="chartStatus" style="font-size:9px;color:var(--tds-text-subtle);margin-top:4px">Loading…</div></div><div class="card"><h4>Key Stats</h4>${[['Open','₹'+s.o.toFixed(s.o<100?2:0)],['High','₹'+s.h.toFixed(s.h<100?2:0)],['Low','₹'+s.l.toFixed(s.l<100?2:0)],['Prev Close','₹'+s.pc.toFixed(s.pc<100?2:0)],['Volume',(s.vol/100000).toFixed(2)+'L'],['Avg Vol',(s.avgVol/100000).toFixed(2)+'L'],['P/E',s.pe&&s.pe!==0?s.pe:'N/A'],['Mkt Cap','₹'+(s.mcap/1000).toFixed(0)+'K Cr']].map(([l,v])=>`<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`).join('')}</div>`;}
+function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.getElementById('tfLabel').textContent=tf;const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)fetchAndDraw(s);}
+
+async function loadChart(s){fetchAndDraw(s);}
+async function fetchAndDraw(s){
+  document.getElementById('chartStatus').textContent='Loading…';
+  try{
+    const d=await api(`/market/intraday/${encodeURIComponent(s.symbol)}?tf=${encodeURIComponent(S.chartTf)}`);
+    const candles=(d.candles||[]).map(c=>({t:c.t,o:Number(c.o),h:Number(c.h),l:Number(c.l),c:Number(c.c)})).filter(c=>c.c>0);
+    if(!candles.length){document.getElementById('chartStatus').textContent='No candle data';return;}
+    drawCandles(candles);
+    document.getElementById('chartStatus').textContent=`${d.source||'yahoo'} · ${candles.length} candles`;
+  }catch(e){document.getElementById('chartStatus').textContent='Error: '+e.message;}
+}
+function drawCandles(data){
+  const c=document.getElementById('miniChart');if(!c)return;
+  const ctx=c.getContext('2d'),W=c.width,H=c.height,pl=55,pr=10,pt=10,pb=30;
+  const pw=W-pl-pr,ph=H-pt-pb,n=data.length;
+  const all=data.flatMap(d=>[d.h,d.l]),min=Math.min(...all),max=Math.max(...all),r=max-min||1;
+  const y=v=>pt+ph*(1-(v-min)/r);
+  ctx.clearRect(0,0,W,H);
+  // Grid
+  ctx.strokeStyle='rgba(58,81,124,0.12)';ctx.lineWidth=0.5;
+  for(let i=0;i<=4;i++){const yi=pt+ph*i/4,price=max-r*i/4;ctx.beginPath();ctx.moveTo(pl,yi);ctx.lineTo(W-pr,yi);ctx.stroke();ctx.fillStyle='#AAC9F6';ctx.font='9px sans-serif';ctx.textAlign='right';ctx.fillText(price.toFixed(1),pl-4,yi+3);}
+  // Candles
+  const bw=Math.max(2,Math.min(8,pw/n*0.7));
+  for(let i=0;i<n;i++){
+    const d=data[i],x=pl+pw*i/(n-1)-bw/2,up=d.c>=d.o;
+    ctx.strokeStyle=up?'#65BDA5':'#EA4851';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(x+bw/2,y(d.h));ctx.lineTo(x+bw/2,y(d.l));ctx.stroke();
+    ctx.fillStyle=up?'#65BDA5':'#EA4851';
+    ctx.fillRect(x,y(Math.max(d.o,d.c)),bw,Math.max(1,Math.abs(y(d.o)-y(d.c))));
+  }
+  // Time labels
+  ctx.fillStyle='#AAC9F6';ctx.font='8px sans-serif';ctx.textAlign='center';
+  for(let i=0;i<=4;i++){const idx=Math.floor(i*n/4);if(idx>=n)continue;const x=pl+pw*idx/(n-1);const t=data[idx].t?new Date(data[idx].t*1000):null;ctx.fillText(t?t.getHours()+':'+String(t.getMinutes()).padStart(2,'0'):'#',x,H-pb+14);}
+}
 function loadLW(s){} // no-op — script loaded in head
 function initLW(s){} // no-op
 function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)renderDetail(s.symbol);}
