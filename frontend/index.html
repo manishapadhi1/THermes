@@ -738,19 +738,21 @@ function renderChart(s){const tf=['1','5','15','60','D','W','M'];const labels={1
 function setTimeframe(btn,tf){S.chartTf=tf;document.querySelectorAll('.timeframe-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const lab=document.getElementById('tfLabel');if(lab)lab.textContent=tf;const s=S.watchlist.find(w=>w.symbol===S.selectedStock);if(s)loadChart(s);}
 
 async function loadChart(s){
-  document.getElementById('chartStatus').textContent='Loading…';
-  if(window.lwChart){window.lwChart.remove();window.lwChart=null;window.lwSeries=null;}
-  const c=document.getElementById('lwChart');if(!c)return;
-  if(!window.LightweightCharts){document.getElementById('chartStatus').textContent='Chart library not loaded';return;}
-  window.lwChart=LightweightCharts.createChart(c,{width:c.clientWidth,height:320,layout:{background:{color:'#15181D'},textColor:'#AAC9F6'},grid:{vertLines:{color:'rgba(58,81,124,0.15)'},horzLines:{color:'rgba(58,81,124,0.15)'}},crosshair:{mode:0},rightPriceScale:{borderColor:'rgba(58,81,124,0.4)'},timeScale:{borderColor:'rgba(58,81,124,0.4)',timeVisible:true}});
-  window.lwSeries=window.lwChart.addCandlestickSeries({upColor:'#65BDA5',downColor:'#EA4851',borderUpColor:'#65BDA5',borderDownColor:'#EA4851',wickUpColor:'#65BDA5',wickDownColor:'#EA4851'});
+  const statusEl=document.getElementById('chartStatus');if(statusEl)statusEl.textContent='Loading…';
+  // Clean up previous chart
+  try{if(window.lwChart){window.lwChart.remove();}}catch(e){}
+  window.lwChart=null;window.lwSeries=null;
+  const c=document.getElementById('lwChart');if(!c){if(statusEl)statusEl.textContent='Chart container not found';return;}
+  if(!window.LightweightCharts||!LightweightCharts.createChart){if(statusEl)statusEl.textContent='Chart library not loaded';return;}
   try{
+    window.lwChart=LightweightCharts.createChart(c,{width:c.clientWidth||600,height:300,layout:{background:{color:'#15181D'},textColor:'#AAC9F6'},grid:{vertLines:{color:'rgba(58,81,124,0.15)'},horzLines:{color:'rgba(58,81,124,0.15)'}},crosshair:{mode:0},rightPriceScale:{borderColor:'rgba(58,81,124,0.4)'},timeScale:{borderColor:'rgba(58,81,124,0.4)',timeVisible:true}});
+    window.lwSeries=window.lwChart.addCandlestickSeries({upColor:'#65BDA5',downColor:'#EA4851',borderUpColor:'#65BDA5',borderDownColor:'#EA4851',wickUpColor:'#65BDA5',wickDownColor:'#EA4851'});
     const d=await api(`/market/intraday/${encodeURIComponent(s.symbol)}?tf=${encodeURIComponent(S.chartTf)}`);
     const candles=(d.candles||[]).map(c=>({time:c.t||0,open:Number(c.o||c.open),high:Number(c.h||c.high),low:Number(c.l||c.low),close:Number(c.c||c.close)})).filter(c=>c.close>0);
-    if(candles.length<1){document.getElementById('chartStatus').textContent='No candle data';return;}
+    if(candles.length<1){if(statusEl)statusEl.textContent='No candle data';return;}
     window.lwSeries.setData(candles);window.lwChart.timeScale().fitContent();
-    document.getElementById('chartStatus').textContent=`${d.source||'yahoo'} · ${candles.length} candles`;
-  }catch(e){document.getElementById('chartStatus').textContent='Chart fetch failed';}
+    if(statusEl)statusEl.textContent=`${d.source||'yahoo'} · ${candles.length} candles`;
+  }catch(e){if(statusEl)statusEl.textContent='Chart error: '+e.message;}
 }
 function loadLW(s){} // no-op — script loaded in head
 function initLW(s){} // no-op
