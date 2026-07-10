@@ -131,29 +131,34 @@ def yahoo_symbol(symbol: str) -> str:
 async def yahoo_quote(symbol: str) -> Optional[Dict[str, Any]]:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol(symbol)}"
     try:
-        async with httpx.AsyncClient(timeout=8.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
+        async with httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
             r = await client.get(url, params={"range": "1d", "interval": "1m"})
-            r.raise_for_status()
-            data = r.json()["chart"]["result"][0]
+            if r.status_code != 200: return None
+            result = r.json().get("chart", {}).get("result", [])
+            if not result: return None
+            data = result[0]
             meta = data.get("meta", {})
-            quote = (data.get("indicators", {}).get("quote") or [{}])[0]
-            closes = [x for x in quote.get("close", []) if x is not None]
-            if not closes: return None
-            pc = meta.get("previousClose") or closes[0]
-            ltp = meta.get("regularMarketPrice") or closes[-1]
+            ltp = meta.get("regularMarketPrice")
+            if not ltp: return None
+            pc = meta.get("previousClose") or meta.get("chartPreviousClose") or ltp
+            opens = (data.get("indicators", {}).get("quote", [{}])[0].get("open") or [])
+            highs = (data.get("indicators", {}).get("quote", [{}])[0].get("high") or [])
+            lows = (data.get("indicators", {}).get("quote", [{}])[0].get("low") or [])
+            closes = [x for x in (data.get("indicators", {}).get("quote", [{}])[0].get("close") or []) if x is not None]
             return {"symbol": symbol, "name": meta.get("longName") or meta.get("shortName") or symbol,
                 "ltp": round(float(ltp), 2), "change": round(float(ltp) - float(pc), 2),
-                "changePct": round(((float(ltp) - float(pc)) / float(pc) * 100), 2) if pc else 0,
-                "o": round(float(quote.get("open", [closes[0]])[0]), 2),
-                "h": round(float(meta.get("regularMarketDayHigh") or max(closes)), 2),
-                "l": round(float(meta.get("regularMarketDayLow") or min(closes)), 2),
-                "pc": round(float(pc), 2), "vol": int(sum(quote.get("volume", [0]))),
+                "changePct": round(((float(ltp) - float(pc)) / float(pc or 1) * 100), 2),
+                "o": round(float(opens[0]) if opens and opens[0] else float(closes[0] if closes else ltp), 2),
+                "h": round(float(meta.get("regularMarketDayHigh") or (max(highs) if highs else max(closes or [ltp]))), 2),
+                "l": round(float(meta.get("regularMarketDayLow") or (min(lows) if lows else min(closes or [ltp]))), 2),
+                "pc": round(float(pc), 2), "vol": 0,
                 "avgVol": int(meta.get("averageDailyVolume10Day") or 0),
                 "high52": round(float(meta.get("fiftyTwoWeekHigh") or 0), 2),
                 "low52": round(float(meta.get("fiftyTwoWeekLow") or 0), 2),
                 "pe": None, "eps": None, "mcap": None, "fundamentals_available": False,
                 "source": "yahoo", "delay_note": "Free Yahoo Finance feed; may be delayed."}
-    except Exception:
+    except Exception as e:
+        print(f"Yahoo quote failed for {symbol}: {e}", flush=True)
         return None
 
 async def angel_candles(symbol: str, tf: str) -> Optional[List[Dict[str, Any]]]:
