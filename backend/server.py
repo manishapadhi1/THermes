@@ -128,6 +128,34 @@ def state_market_provider() -> str:
 def yahoo_symbol(symbol: str) -> str:
     return symbol if "." in symbol else f"{symbol}{YAHOO_SUFFIX}"
 
+async def yahoo_quote(symbol: str) -> Optional[Dict[str, Any]]:
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol(symbol)}"
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            r = await client.get(url, params={"range": "1d", "interval": "1m"})
+            r.raise_for_status()
+            data = r.json()["chart"]["result"][0]
+            meta = data.get("meta", {})
+            quote = (data.get("indicators", {}).get("quote") or [{}])[0]
+            closes = [x for x in quote.get("close", []) if x is not None]
+            if not closes: return None
+            pc = meta.get("previousClose") or closes[0]
+            ltp = meta.get("regularMarketPrice") or closes[-1]
+            return {"symbol": symbol, "name": meta.get("longName") or meta.get("shortName") or symbol,
+                "ltp": round(float(ltp), 2), "change": round(float(ltp) - float(pc), 2),
+                "changePct": round(((float(ltp) - float(pc)) / float(pc) * 100), 2) if pc else 0,
+                "o": round(float(quote.get("open", [closes[0]])[0]), 2),
+                "h": round(float(meta.get("regularMarketDayHigh") or max(closes)), 2),
+                "l": round(float(meta.get("regularMarketDayLow") or min(closes)), 2),
+                "pc": round(float(pc), 2), "vol": int(sum(quote.get("volume", [0]))),
+                "avgVol": int(meta.get("averageDailyVolume10Day") or 0),
+                "high52": round(float(meta.get("fiftyTwoWeekHigh") or 0), 2),
+                "low52": round(float(meta.get("fiftyTwoWeekLow") or 0), 2),
+                "pe": None, "eps": None, "mcap": None, "fundamentals_available": False,
+                "source": "yahoo", "delay_note": "Free Yahoo Finance feed; may be delayed."}
+    except Exception:
+        return None
+
 async def angel_candles(symbol: str, tf: str) -> Optional[List[Dict[str, Any]]]:
     """Get historical candles from Angel One."""
     hdrs = await angel_headers()
@@ -1451,6 +1479,8 @@ async def multi_timeframe_recommendations(symbol: str):
         
         # Compute ATR-based stop/target from actual stock volatility
         atr = compute_atr(candles) or 0.01
+        stop_dist = atr * cfg["risk_mult"]
+        target_dist = atr * cfg["reward_mult"]
         current = float(candles[-1].get("c", candles[-1].get("close", 0)))
         if current <= 0: current = entry = tech.get("entry", 100)
         atr_pct = (atr / current) if current > 0 else 0.01
@@ -1486,6 +1516,21 @@ async def multi_timeframe_recommendations(symbol: str):
             else: sell += 1
             if current > tech.get("ma200", current): buy += 1
         # Entry/exit logic
+        # Get long-term potential target from fundamentals
+        lt_target = None
+        try:
+            f = await scrape_screener(sym)
+            if f.get("high52") and f.get("eps"): lt_target = round((f["high52"] + f["eps"]*25*4)/2, 2)
+            elif f.get("high52"): lt_target = round(f["high52"]*0.75, 2)
+        except Exception: pass
+        # Target style
+        style = cfg.get("target_style", "atr")
+        if style == "atr": final_target = round(entry + target_dist, 2) if entry else None
+        elif style == "blend":
+            atr_t = entry + target_dist if entry else current * 1.02
+            lt = lt_target or (atr_t * 1.5)
+            final_target = round(atr_t * 0.4 + lt * 0.6, 2)
+        else: final_target = lt_target or round(entry + target_dist * 3, 2) if entry else None
         if buy > sell + 2:
             action = "BUY"
             stop = round(entry - stop_dist, 2) if entry else None
