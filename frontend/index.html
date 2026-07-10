@@ -460,6 +460,7 @@ async function init(){
   buildModelSelect();
   renderMarketBar();renderWatchlist();renderPortfolio();renderIndices();
   updateAccountDisplay();
+  api('/account/summary').then(updateHUD).catch(()=>{});
   welcomeMsg();
   setTimeout(()=>selectStock('NIITMTS'),800);
   setTimeout(()=>autoEnrichPortfolio(),1500);
