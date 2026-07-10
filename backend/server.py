@@ -1506,6 +1506,32 @@ async def multi_timeframe_recommendations(symbol: str):
                          "macd": round(macd, 4), "buy": buy, "sell": sell, "reason": reason}
     return {"symbol": sym, "recommendations": results}
 
+@app.get("/api/account/summary")
+async def account_summary():
+    """Return available funds, day P&L, total P&L from Zerodha."""
+    broker = load_state().get("brokers", {}).get("zerodha", {})
+    result = {"available": 0, "day_pnl": 0, "total_pnl": 0, "source": "none"}
+    if broker.get("api_key") and broker.get("access_token"):
+        try:
+            headers = {"X-Kite-Version": "3", "Authorization": f"token {broker['api_key']}:{broker['access_token']}"}
+            async with httpx.AsyncClient(timeout=12.0, headers=headers) as client:
+                # Margins
+                mr = await client.get(f"{KITE_BASE}/user/margins"); mr.raise_for_status()
+                margins = mr.json().get("data", {})
+                available = float(margins.get("equity", {}).get("available", {}).get("live_balance", 0))
+                # Positions (day P&L)
+                pr = await client.get(f"{KITE_BASE}/portfolio/positions"); pr.raise_for_status()
+                positions = pr.json().get("data", {})
+                day_pnl = sum(float(p.get("unrealised", 0)) + float(p.get("realised", 0)) for p in (positions.get("net", []) or []))
+                # Holdings (total P&L)
+                hr = await client.get(f"{KITE_BASE}/portfolio/holdings"); hr.raise_for_status()
+                holdings = hr.json().get("data", [])
+                total_pnl = sum((float(h.get("last_price", 0)) - float(h.get("average_price", 0))) * float(h.get("quantity", 0)) for h in holdings)
+            result = {"available": round(available, 2), "day_pnl": round(day_pnl, 2), "total_pnl": round(total_pnl, 2), "source": "zerodha"}
+        except Exception as e:
+            result["error"] = str(e)[:200]
+    return result
+
 # ─── Run ───────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
