@@ -1405,12 +1405,24 @@ async def get_recommendations(symbol: str, agent: str = "careful"):
 
 # Multi-timeframe recommendation engine
 TIMEFRAME_CONFIG = {
-    "5m":  {"tf": "1d", "label": "5 Minutes",   "risk_mult": 1.0, "reward_mult": 1.5, "target_style": "atr"},
-    "15m": {"tf": "1d", "label": "15 Minutes",  "risk_mult": 1.2, "reward_mult": 1.8, "target_style": "atr"},
-    "1h":  {"tf": "5d", "label": "1 Hour",      "risk_mult": 1.5, "reward_mult": 2.0, "target_style": "blend"},
-    "6h":  {"tf": "5d", "label": "6 Hours",     "risk_mult": 2.0, "reward_mult": 2.5, "target_style": "blend"},
-    "1d":  {"tf": "1mo","label": "1 Day",       "risk_mult": 2.5, "reward_mult": 3.0, "target_style": "blend"},
-    "6mo": {"tf": "1y", "label": "6 Months",    "risk_mult": 1.5, "reward_mult": 2.0, "target_style": "fundamental"},
+    "5m":  {"tf": "1d", "label": "5 Minutes",   "risk_mult": 0.8, "reward_mult": 1.2, "target_style": "atr",
+            "refresh_sec": 60,    "rsi_oversold": 28, "rsi_overbought": 75,
+            "desc": "RSI + volume momentum + price action. Entry at 15-min support, target 1.2x ATR."},
+    "15m": {"tf": "1d", "label": "15 Minutes",  "risk_mult": 1.0, "reward_mult": 1.5, "target_style": "atr",
+            "refresh_sec": 180,   "rsi_oversold": 30, "rsi_overbought": 72,
+            "desc": "EMA crossover + S/R levels + RSI divergence. Entry at nearest support, target 1.5x ATR."},
+    "1h":  {"tf": "5d", "label": "1 Hour",      "risk_mult": 1.3, "reward_mult": 2.0, "target_style": "blend",
+            "refresh_sec": 600,   "rsi_oversold": 32, "rsi_overbought": 70,
+            "desc": "MACD + trend strength + volume profile. Entry at pivot support, blended target."},
+    "6h":  {"tf": "5d", "label": "6 Hours",     "risk_mult": 1.8, "reward_mult": 2.5, "target_style": "blend",
+            "refresh_sec": 900,   "rsi_oversold": 35, "rsi_overbought": 68,
+            "desc": "Pivot points + ATR + MA alignment. Entry at S1, blended target with fundamental weight."},
+    "1d":  {"tf": "1mo","label": "1 Day",       "risk_mult": 2.2, "reward_mult": 3.0, "target_style": "blend",
+            "refresh_sec": 3600,  "rsi_oversold": 38, "rsi_overbought": 65,
+            "desc": "Moving averages + fundamental bias + sentiment. Entry at S2 support."},
+    "6mo": {"tf": "1y", "label": "6 Months",    "risk_mult": 2.0, "reward_mult": 2.5, "target_style": "fundamental",
+            "refresh_sec": 10800, "rsi_oversold": 40, "rsi_overbought": 60,
+            "desc": "Fundamental valuation + 52W range + screener.in data. Long-term potential target."},
 }
 
 def compute_atr(candles: List[Dict], period: int = 14) -> float:
@@ -1446,44 +1458,35 @@ async def multi_timeframe_recommendations(symbol: str):
         rsi = tech.get("rsi", 50); macd = tech.get("macd", 0)
         entry = tech.get("entry", current)
         buy = sell = 0
-        if rsi < 32: buy += 3
-        elif rsi > 72: sell += 3
+        # Precision scoring per timeframe
+        rsio = cfg.get("rsi_oversold", 30)
+        rsib = cfg.get("rsi_overbought", 70)
+        if rsi < rsio: buy += 4          # Deep oversold — strong buy
+        elif rsi < rsio + 5: buy += 2     # Near oversold
+        elif rsi > rsib: sell += 4        # Deep overbought — strong sell
+        elif rsi > rsib - 5: sell += 2    # Near overbought
         elif rsi < 45: buy += 1
         elif rsi > 60: sell += 1
+        # MACD
         if macd > 0: buy += 2
-        else: sell += 2
+        elif macd < -0.5: sell += 3
+        else: sell += 1
+        # Candlestick patterns
         for p in tech.get("patterns", []):
-            if p["type"] == "bullish": buy += 2
-            elif p["type"] == "bearish": sell += 2
-        
-        # Dynamic stop (ATR-based) + target (ATR + long-term potential blend)
-        stop_dist = atr * cfg["risk_mult"]
-        target_dist = atr * cfg["reward_mult"]
-        
-        # Get long-term potential target from fundamentals
-        lt_target = None
-        try:
-            f = await scrape_screener(sym)
-            if f.get("high52") and f.get("eps"):
-                fair = f["eps"] * 25 * 4  # annualized EPS * sector P/E
-                lt_target = round((f["high52"] + fair) / 2, 2)
-            elif f.get("high52"):
-                lt_target = round(f["high52"] * 0.75, 2)
-        except Exception:
-            pass
-        
-        # Compute target based on style
-        style = cfg.get("target_style", "atr")
-        if style == "atr":
-            final_target = round(entry + target_dist, 2) if entry else None
-        elif style == "blend":
-            atr_t = entry + target_dist if entry else current * 1.02
-            lt = lt_target or (atr_t * 1.5)
-            final_target = round(atr_t * 0.4 + lt * 0.6, 2)
-        else:  # fundamental — use long-term potential
-            final_target = lt_target or round(entry + target_dist * 3, 2) if entry else None
-        
-        if buy > sell + 1:
+            if p["type"] == "bullish": buy += 3
+            elif p["type"] == "bearish": sell += 3
+        # Volume check for 5m/15m
+        if key in ("5m", "15m") and candles and len(candles) >= 5:
+            recent_vol = float(candles[-1].get("v", candles[-1].get("volume", 0)))
+            avg_vol = sum(float(c.get("v", c.get("volume", 0))) for c in candles[-10:]) / max(len(candles[-10:]), 1)
+            if avg_vol > 0 and recent_vol > avg_vol * 1.5: buy += 2  # Volume spike
+        # MA alignment for 1h+
+        if key in ("1h", "6h", "1d", "6mo") and current > 0:
+            if current > tech.get("ma50", current): buy += 1
+            else: sell += 1
+            if current > tech.get("ma200", current): buy += 1
+        # Entry/exit logic
+        if buy > sell + 2:
             action = "BUY"
             stop = round(entry - stop_dist, 2) if entry else None
             target = final_target
