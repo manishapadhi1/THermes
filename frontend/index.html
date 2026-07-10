@@ -347,8 +347,9 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
     <div class="market-bar" id="marketBar"></div>
     <div class="hud-bar" id="hudBar">
       <div class="hud-item"><span class="hud-label">AVAILABLE</span><span class="hud-value" id="hudAvailable">—</span></div>
-      <div class="hud-item"><span class="hud-label">POSITIONS P&L</span><span class="hud-value" id="hudDayPnL">—</span></div>
-      <div class="hud-item"><span class="hud-label">HOLDINGS P&L</span><span class="hud-value" id="hudTotalPnL">—</span></div>
+      <div class="hud-item"><span class="hud-label">POSITIONS</span><span class="hud-value" id="hudDayPnL">—</span></div>
+      <div class="hud-item"><span class="hud-label">HLD DAY P&L</span><span class="hud-value" id="hudHoldDay">—</span></div>
+      <div class="hud-item"><span class="hud-label">HLD TOTAL</span><span class="hud-value" id="hudTotalPnL">—</span></div>
     </div>
     <div class="main" id="mainLayout">
       <!-- SIDEBAR -->
@@ -596,6 +597,10 @@ function updateHUD(d){
   const pv=d.positions_pnl!=null?d.positions_pnl:d.day_pnl;
   pp.textContent=(pv>=0?'+':'−')+fmt(pv);
   pp.style.color=pv>=0?'var(--tds-success)':'var(--tds-danger)';
+  const hd=document.getElementById('hudHoldDay');
+  const hdv=d.holdings_day_pnl||0;
+  hd.textContent=(hdv>=0?'+':'−')+fmt(hdv);
+  hd.style.color=hdv>=0?'var(--tds-success)':'var(--tds-danger)';
   const hp=document.getElementById('hudTotalPnL');
   const hv=d.holdings_pnl!=null?d.holdings_pnl:d.total_pnl;
   hp.textContent=(hv>=0?'+':'−')+fmt(hv);
