@@ -716,7 +716,7 @@ function renderDetail(sym){
 
   document.getElementById('detail').innerHTML=`
     <div class="detail-hdr"><div style="display:flex;align-items:center;gap:10px"><h2>${s.symbol}</h2><span class="verdict-badge ${v}"><span class="vdot"></span>${vl[v]}</span></div><button class="close-btn" onclick="closeDetail()">✕</button></div>
-    <div style="font-size:10px;color:var(--tds-text-subtle);padding:0 16px 4px">${s.name} · ${s.sector||'N/A'} · P/E ${s.pe&&s.pe!==0?s.pe:'N/A'}</div>
+    <div style="font-size:10px;color:var(--tds-text-subtle);padding:0 16px 4px">${s.name} · ${s.sector||'N/A'} · P/E ${(s.pe&&s.pe>0)?s.pe:'N/A'}</div>
     <div class="d-price"><span class="p">₹${Number(s.ltp||0).toFixed(s.ltp<100?2:0)}</span><span class="ch ${cc}">${sg}₹${Math.abs(s.change||0).toFixed(2)} (${sg}${Number(s.changePct||0).toFixed(2)}%)</span></div>
     <div style="padding:0 16px 8px;font-size:11px;color:${v==='data'?'var(--tds-warning)':'var(--tds-text-subtle)'}">
       ${v==='data'?'Fundamental/sentiment data is incomplete. ':''}<span id="researchStatus">${s.researchNotes||''}</span>
