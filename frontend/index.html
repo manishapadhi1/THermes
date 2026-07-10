@@ -347,8 +347,8 @@ html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui);font
     <div class="market-bar" id="marketBar"></div>
     <div class="hud-bar" id="hudBar">
       <div class="hud-item"><span class="hud-label">AVAILABLE</span><span class="hud-value" id="hudAvailable">—</span></div>
-      <div class="hud-item"><span class="hud-label">DAY P&L</span><span class="hud-value" id="hudDayPnL">—</span></div>
-      <div class="hud-item"><span class="hud-label">TOTAL P&L</span><span class="hud-value" id="hudTotalPnL">—</span></div>
+      <div class="hud-item"><span class="hud-label">POSITIONS P&L</span><span class="hud-value" id="hudDayPnL">—</span></div>
+      <div class="hud-item"><span class="hud-label">HOLDINGS P&L</span><span class="hud-value" id="hudTotalPnL">—</span></div>
     </div>
     <div class="main" id="mainLayout">
       <!-- SIDEBAR -->
@@ -590,14 +590,16 @@ function renderIndices(){
 
 function updateHUD(d){
   if(!d)return;
-  const fmt=(v)=>'₹'+(Math.abs(Number(v||0))/100000).toFixed(2)+'L';
+  const fmt=(v)=>'₹'+Math.abs(Number(v||0)).toLocaleString('en-IN');
   document.getElementById('hudAvailable').textContent=fmt(d.available);
-  const de=document.getElementById('hudDayPnL');
-  de.textContent=(d.day_pnl>=0?'+':'−')+fmt(d.day_pnl);
-  de.style.color=d.day_pnl>=0?'var(--tds-success)':'var(--tds-danger)';
-  const te=document.getElementById('hudTotalPnL');
-  te.textContent=(d.total_pnl>=0?'+':'−')+fmt(d.total_pnl);
-  te.style.color=d.total_pnl>=0?'var(--tds-success)':'var(--tds-danger)';
+  const pp=document.getElementById('hudDayPnL');
+  const pv=d.positions_pnl!=null?d.positions_pnl:d.day_pnl;
+  pp.textContent=(pv>=0?'+':'−')+fmt(pv);
+  pp.style.color=pv>=0?'var(--tds-success)':'var(--tds-danger)';
+  const hp=document.getElementById('hudTotalPnL');
+  const hv=d.holdings_pnl!=null?d.holdings_pnl:d.total_pnl;
+  hp.textContent=(hv>=0?'+':'−')+fmt(hv);
+  hp.style.color=hv>=0?'var(--tds-success)':'var(--tds-danger)';
 }
 
 function renderMarketBar(){

@@ -1510,7 +1510,7 @@ async def multi_timeframe_recommendations(symbol: str):
 async def account_summary():
     """Return available funds, day P&L, total P&L from Zerodha."""
     broker = load_state().get("brokers", {}).get("zerodha", {})
-    result = {"available": 0, "day_pnl": 0, "total_pnl": 0, "source": "none"}
+    result = {"available": 0, "day_pnl": 0, "total_pnl": 0, "positions_pnl": 0, "holdings_pnl": 0, "source": "none"}
     if broker.get("api_key") and broker.get("access_token"):
         try:
             headers = {"X-Kite-Version": "3", "Authorization": f"token {broker['api_key']}:{broker['access_token']}"}
@@ -1523,11 +1523,10 @@ async def account_summary():
                 pr = await client.get(f"{KITE_BASE}/portfolio/positions"); pr.raise_for_status()
                 positions = pr.json().get("data", {})
                 day_pnl = sum(float(p.get("unrealised", 0)) + float(p.get("realised", 0)) for p in (positions.get("net", []) or []))
-                # Holdings (total P&L)
-                hr = await client.get(f"{KITE_BASE}/portfolio/holdings"); hr.raise_for_status()
+                # Holdings P&L
                 holdings = hr.json().get("data", [])
-                total_pnl = sum((float(h.get("last_price", 0)) - float(h.get("average_price", 0))) * float(h.get("quantity", 0)) for h in holdings)
-            result = {"available": round(available, 2), "day_pnl": round(day_pnl, 2), "total_pnl": round(total_pnl, 2), "source": "zerodha"}
+                holdings_pnl = sum((float(h.get("last_price", 0)) - float(h.get("average_price", 0))) * float(h.get("quantity", 0)) for h in holdings)
+            result = {"available": round(available, 2), "positions_pnl": round(day_pnl, 2), "holdings_pnl": round(holdings_pnl, 2), "day_pnl": round(day_pnl, 2), "total_pnl": round(day_pnl + holdings_pnl, 2), "source": "zerodha"}
         except Exception as e:
             result["error"] = str(e)[:200]
     return result
