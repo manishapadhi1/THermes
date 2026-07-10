@@ -645,86 +645,71 @@ class WatchlistOrder(BaseModel):
 # ═══════════════════════════════════════════════════════
 
 SCREENER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": "https://www.screener.in/",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Sec-Ch-Ua": '"Not/A)Brand";v="99", "Google Chrome";v="126"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
 }
 
 async def scrape_screener(symbol: str) -> Dict[str, Any]:
     """Scrape fundamental data from screener.in for a given symbol."""
     url = f"https://www.screener.in/company/{symbol.upper()}/consolidated/"
     result = {"source": "screener.in", "success": False, "symbol": symbol.upper()}
-    try:
-        async with httpx.AsyncClient(timeout=15.0, headers=SCREENER_HEADERS, follow_redirects=True) as client:
-            r = await client.get(url)
-            if r.status_code != 200:
-                result["error"] = f"HTTP {r.status_code}"
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=20.0, headers=SCREENER_HEADERS, follow_redirects=True) as client:
+                await client.get("https://www.screener.in/")  # cookies
+                r = await client.get(url)
+                if r.status_code != 200:
+                    if attempt == 0: continue
+                    result["error"] = f"HTTP {r.status_code}"; return result
+                html = r.text
+                def extract(pat, idx=0):
+                    m = re.search(pat, html, re.DOTALL)
+                    if not m: return None
+                    g = m.groups(); val = g[idx] if idx < len(g) else g[0]
+                    return val.replace(",", "").strip()
+                def extract_num(pat, idx=0):
+                    v = extract(pat, idx)
+                    if v is None: return None
+                    try: return float(v)
+                    except ValueError: return None
+                result["name"] = (re.search(r'<title>([^<]+)</title>', html) or [None, symbol])[1]
+                result["pe"] = extract_num(r'Stock P/E.*?class="number"[^>]*>([\d.]+)')
+                result["book_value"] = extract_num(r'Book Value.*?class="number"[^>]*>([\d,.]+)')
+                result["mcap"] = extract_num(r'Market Cap.*?class="number"[^>]*>([\d,.]+)')
+                hl = re.search(r'High / Low.*?class="number"[^>]*>([\d,.]+).*?/\s*.*?class="number"[^>]*>([\d,.]+)', html, re.DOTALL)
+                if hl: result["high52"] = float(hl.group(1).replace(",", "")); result["low52"] = float(hl.group(2).replace(",", ""))
+                result["roce"] = extract_num(r'ROCE.*?class="number"[^>]*>([\d.]+)\s*%', 0) or extract_num(r'ROCE.*?<span class="number"[^>]*>([\d.]+)', 0)
+                result["roe"] = extract_num(r'ROE.*?class="number"[^>]*>([\d.]+)\s*%', 0) or extract_num(r'ROE.*?<span class="number"[^>]*>([\d.]+)', 0)
+                result["eps"] = extract_num(r'EPS.*?<span class="number"[^>]*>₹?([\d,.]+)', 0)
+                if result["eps"] is None:
+                    eps_section = re.search(r'EPS in Rs(.*?)</tr>', html, re.DOTALL)
+                    if eps_section:
+                        all_nums = re.findall(r'<td[^>]*>\s*([\d.]+)\s*</td>', eps_section.group(1))
+                        if all_nums: result["eps"] = float(all_nums[-1])
+                result["div_yield"] = extract_num(r'Dividend Yield.*?class="number"[^>]*>([\d.]+)%')
+                overview = re.search(r'Revenue:\s*([\d,]+)\s*Cr.*?Profit:\s*([\d,]+)\s*Cr', html, re.DOTALL)
+                if overview: result["revenue"] = float(overview.group(1).replace(",", "")); result["profit"] = float(overview.group(2).replace(",", ""))
+                promoter = re.search(r'Promoter holding.*?:\s*([\d.]+)%', html, re.DOTALL)
+                if promoter: result["promoter_holding"] = float(promoter.group(1))
+                wc = re.search(r'Working capital days.*?from\s*([\d.]+)\s*days?\s*to\s*([\d.]+)\s*days?', html, re.DOTALL)
+                if wc: result["working_capital_days"] = {"from": float(wc.group(1)), "to": float(wc.group(2))}
+                result["success"] = bool(result.get("pe"))
                 return result
-            html = r.text
-
-            def extract(pat, idx=0):
-                m = re.search(pat, html, re.DOTALL)
-                if not m:
-                    return None
-                g = m.groups()
-                val = g[idx] if idx < len(g) else g[0]
-                return val.replace(",", "").strip()
-
-            def extract_num(pat, idx=0):
-                v = extract(pat, idx)
-                if v is None:
-                    return None
-                try:
-                    return float(v)
-                except ValueError:
-                    return None
-
-            result["name"] = (re.search(r'<title>([^<]+)</title>', html) or [None, symbol])[1]
-            # Use title as-is for name (user prefers seeing full title over empty/0 values)
-            result["pe"] = extract_num(r'Stock P/E.*?class="number"[^>]*>([\d.]+)')
-            result["book_value"] = extract_num(r'Book Value.*?class="number"[^>]*>([\d,.]+)')
-            result["mcap"] = extract_num(r'Market Cap.*?class="number"[^>]*>([\d,.]+)')
-            hl = re.search(r'High / Low.*?class="number"[^>]*>([\d,.]+).*?/\s*.*?class="number"[^>]*>([\d,.]+)', html, re.DOTALL)
-            if hl:
-                result["high52"] = float(hl.group(1).replace(",", ""))
-                result["low52"] = float(hl.group(2).replace(",", ""))
-            result["roce"] = extract_num(r'ROCE.*?class="number"[^>]*>([\d.]+)\s*%', 0) or extract_num(r'ROCE.*?<span class="number"[^>]*>([\d.]+)', 0)
-            result["roe"] = extract_num(r'ROE.*?class="number"[^>]*>([\d.]+)\s*%', 0) or extract_num(r'ROE.*?<span class="number"[^>]*>([\d.]+)', 0)
-            result["eps"] = extract_num(r'EPS.*?<span class="number"[^>]*>₹?([\d,.]+)', 0)
-            # Fallback: extract EPS from quarterly results table (last numeric value in EPS row)
-            if result["eps"] is None:
-                eps_section = re.search(r'EPS in Rs(.*?)</tr>', html, re.DOTALL)
-                if eps_section:
-                    all_nums = re.findall(r'<td[^>]*>\s*([\d.]+)\s*</td>', eps_section.group(1))
-                    if all_nums:
-                        result["eps"] = float(all_nums[-1])  # most recent quarter
-
-            # Revenue/Profit from the overview line
-            overview = re.search(r'Revenue:\s*([\d,]+)\s*Cr.*?Profit:\s*([\d,]+)\s*Cr', html, re.DOTALL)
-            if overview:
-                result["revenue"] = float(overview.group(1).replace(",", ""))
-                result["profit"] = float(overview.group(2).replace(",", ""))
-
-            # Promoter holding and working capital
-            promoter = re.search(r'Promoter holding.*?:\s*([\d.]+)%', html, re.DOTALL)
-            if promoter:
-                result["promoter_holding"] = float(promoter.group(1))
-            wc = re.search(r'Working capital days.*?from\s*([\d.]+)\s*days?\s*to\s*([\d.]+)\s*days?', html, re.DOTALL)
-            if wc:
-                result["working_capital_days"] = {"from": float(wc.group(1)), "to": float(wc.group(2))}
-
-            result["success"] = bool(result.get("pe"))
-
-            # Try to find debt/equity and OPM from the ratios section
-            for line in html.split('\n'):
-                if 'Debt to equity' in line:
-                    de = re.search(r'class="number"[^>]*>([\d.]+)', line)
-                    if de:
-                        result["debt_equity"] = float(de.group(1))
-            return result
-    except Exception as e:
-        result["error"] = str(e)[:200]
-        return result
-
+        except Exception as e:
+            if attempt == 0: continue
+            result["error"] = str(e)[:200]
+    return result
 
 def compute_technicals(symbol: str, candles: List[Dict]) -> Dict[str, Any]:
     """Compute RSI, MACD, MA, patterns from OHLC candle data."""
