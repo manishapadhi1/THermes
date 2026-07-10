@@ -866,7 +866,7 @@ function renderRecommendations(s,d){
   const order=['5m','15m','1h','6h','1d','6mo'];
   const colorMap={BUY:'var(--tds-success)',SELL:'var(--tds-danger)',HOLD:'var(--tds-warning)'};
   const bgMap={BUY:'rgba(101,189,165,0.08)',SELL:'rgba(234,72,81,0.08)',HOLD:'rgba(241,194,27,0.06)'};
-  return `<div class="card"><h4>Multi-Timeframe Recommendations — ${s.symbol}</h4><div style="font-size:10px;color:var(--tds-text-subtle);margin-bottom:12px">Updated every 20s. Day-trading optimized.</div>`+
+  return `<div class="card"><h4>Multi-Timeframe Recommendations — ${s.symbol}</h4><div style="font-size:10px;color:var(--tds-text-subtle);margin-bottom:12px">Staggered refresh · <button class="btn-sm primary" onclick="loadRecommendations(S.watchlist.find(w=>w.symbol===S.selectedStock))">↻ All</button></div>`+
     order.map(k=>{
       const r=recs[k]||{label:k,action:'HOLD',entry:null,stop:null,target:null,rsi:'-',reason:'No data'};
       return `<div style="background:${bgMap[r.action]};border:1px solid ${colorMap[r.action]};border-radius:6px;padding:10px 12px;margin-bottom:8px">
@@ -879,9 +879,38 @@ function renderRecommendations(s,d){
           ${r.stop?`<div><span style="color:var(--tds-text-subtle)">Stop</span><br><strong style="color:var(--tds-danger)">₹${Number(r.stop).toFixed(2)}</strong></div>`:'<div>—</div>'}
           ${r.target?`<div><span style="color:var(--tds-text-subtle)">Target</span><br><strong style="color:var(--tds-success)">₹${Number(r.target).toFixed(2)}</strong></div>`:'<div>—</div>'}
         </div>
-        <div style="margin-top:6px;font-size:10px;color:var(--tds-text-subtle)">RSI ${r.rsi||'-'} · MACD ${r.macd||'-'} · ${r.reason||''}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
+          <span style="font-size:10px;color:var(--tds-text-subtle)">RSI ${r.rsi||'-'} · ${r.reason||''}</span>
+          <div style="display:flex;gap:4px">
+            <button class="btn-sm success" onclick="quickTrade('${s.symbol}','BUY','LIMIT',${r.entry||s.ltp},1)" title="Limit buy 1 at entry">+</button>
+            <button class="btn-sm danger" onclick="quickTrade('${s.symbol}','SELL','LIMIT',${r.target||s.ltp},1)" title="Limit sell 1 at target">−</button>
+            <button class="btn-sm danger" onclick="quickTrade('${s.symbol}','SELL','MARKET',${s.ltp},1)" title="Market sell 1">🗑</button>
+          </div>
+        </div>
       </div>`;
     }).join('')+`</div>`;
+}
+
+async function quickTrade(symbol,action,type,price,qty){
+  try{
+    const r=await api('/trade/order',{method:'POST',body:JSON.stringify({symbol,action,price:Number(price)||0,quantity:qty,order_type:type})});
+    toast(`${action} ${type} ${qty} ${symbol} @ ₹${price} — ${r.order.order_id}`,'ok');
+  }catch(e){toast('Order failed: '+e.message,'err');}
+}
+
+// Staggered refresh for recommendations
+let recoRefreshers={};
+function startRecoRefresh(){
+  const intervals={5:60,15:180,60:600,360:900,1440:3600,4320:10800};
+  Object.entries(intervals).forEach(([mins,sec])=>{
+    if(recoRefreshers[mins])clearInterval(recoRefreshers[mins]);
+    recoRefreshers[mins]=setInterval(()=>{
+      if(S.selectedStock&&S.detailTab==='recommendation'){
+        const s=S.watchlist.find(w=>w.symbol===S.selectedStock);
+        if(s)loadRecommendations(s);
+      }
+    },sec*1000);
+  });
 }
 
 // ═══════════════════════════════════════════════
@@ -1291,6 +1320,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.addEventListener('keydown',(e)=>{if(e.key==='Escape'){closeDropdown();closeSettings();}});
   window.addEventListener('resize',()=>{if(window.innerWidth>768){document.getElementById('sidebar').classList.remove('open');document.getElementById('detail').classList.remove('open');}});
   setInterval(()=>{ if(!document.hidden) refreshMarketData(); }, 20000);
+  setTimeout(startRecoRefresh,2000);
 });
 </script>
 </body>
