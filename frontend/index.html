@@ -1050,7 +1050,8 @@ function applyResearchData(symbol,data){
     researchedAt:Date.now()};
   saveEnrichedSymbol(symbol);
   renderWatchlist();renderPortfolio();
-  if(S.selectedStock===symbol)renderDetail(symbol);
+  // Only re-render detail if not on a tab that manages its own refresh
+  if(S.selectedStock===symbol&&S.detailTab!=='recommendation')renderDetail(symbol);
 }
 
 function setGoal(goal){
